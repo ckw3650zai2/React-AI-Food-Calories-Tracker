@@ -332,50 +332,60 @@ const App: React.FC = () => {
     <div className="max-w-5xl mx-auto px-4 pb-24 animate-fade-in relative z-10">
       <Navbar />
 
-      {/* Progress Section */}
-      <div className="glass-card rounded-[3rem] p-10 shadow-2xl shadow-gray-200/50 mb-10 border-white/60">
-        <div className="flex justify-between items-center mb-10">
-          <div>
-            <h2 className="text-3xl font-black text-gray-900 mb-1">Daily Overview</h2>
-            <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">Targeting your 24h nutrition goals</p>
+      {/* Progress Section Container with Localized Glows */}
+      <div className="relative mb-10 group">
+        {/* Cute background light blobs behind the main card */}
+        <div className="absolute -top-10 -left-10 w-40 h-40 bg-brand-green/30 blur-[100px] rounded-full z-0 group-hover:scale-150 transition-transform duration-1000"></div>
+        <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-blue-400/20 blur-[100px] rounded-full z-0 group-hover:scale-150 transition-transform duration-1000"></div>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-32 bg-pink-400/10 blur-[120px] rounded-full z-0"></div>
+
+        <div className="glass-card rounded-[3rem] p-10 shadow-2xl shadow-gray-200/50 border-white/60 relative z-10 overflow-hidden">
+          {/* subtle interior glow */}
+          <div className="absolute top-0 right-0 w-32 h-32 bg-white/20 blur-2xl rounded-full -mr-10 -mt-10"></div>
+          
+          <div className="flex justify-between items-center mb-10">
+            <div>
+              <h2 className="text-3xl font-black text-gray-900 mb-1">Daily Overview</h2>
+              <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">Targeting your 24h nutrition goals</p>
+            </div>
+            <div className="hidden sm:flex items-center gap-2 bg-brand-green/10 text-brand-green px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest">
+              <Award size={16} /> Elite Status
+            </div>
           </div>
-          <div className="hidden sm:flex items-center gap-2 bg-brand-green/10 text-brand-green px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest">
-            <Award size={16} /> Elite Status
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-8">
+            <CircularProgress 
+              value={totals.calories} 
+              max={user?.goals.calories || 2000} 
+              color="#10B981" 
+              label="Calories" 
+              subLabel="kcal" 
+              size={140}
+            />
+            <CircularProgress 
+              value={totals.protein} 
+              max={user?.goals.protein || 150} 
+              color="#3B82F6" 
+              label="Protein" 
+              subLabel="g" 
+              size={140}
+            />
+            <CircularProgress 
+              value={totals.carbs} 
+              max={user?.goals.carbs || 250} 
+              color="#F59E0B" 
+              label="Carbs" 
+              subLabel="g" 
+              size={140}
+            />
+            <CircularProgress 
+              value={totals.fat} 
+              max={user?.goals.fat || 70} 
+              color="#EF4444" 
+              label="Fat" 
+              subLabel="g" 
+              size={140}
+            />
           </div>
-        </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-8">
-          <CircularProgress 
-            value={totals.calories} 
-            max={user?.goals.calories || 2000} 
-            color="#10B981" 
-            label="Calories" 
-            subLabel="kcal" 
-            size={140}
-          />
-          <CircularProgress 
-            value={totals.protein} 
-            max={user?.goals.protein || 150} 
-            color="#3B82F6" 
-            label="Protein" 
-            subLabel="g" 
-            size={140}
-          />
-          <CircularProgress 
-            value={totals.carbs} 
-            max={user?.goals.carbs || 250} 
-            color="#F59E0B" 
-            label="Carbs" 
-            subLabel="g" 
-            size={140}
-          />
-          <CircularProgress 
-            value={totals.fat} 
-            max={user?.goals.fat || 70} 
-            color="#EF4444" 
-            label="Fat" 
-            subLabel="g" 
-            size={140}
-          />
         </div>
       </div>
 
