@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -17,11 +18,14 @@
                 light: '#F3F4F6'
               },
               macro: {
-                cal: '#10B981', // Green
-                pro: '#3B82F6', // Blue
-                carb: '#F59E0B', // Yellow
-                fat: '#EF4444'  // Red
+                cal: '#10B981',
+                pro: '#3B82F6',
+                carb: '#F59E0B',
+                fat: '#EF4444'
               }
+            },
+            backgroundImage: {
+              'mesh': 'radial-gradient(at 0% 0%, hsla(161,71%,91%,1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(217,91%,91%,1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(38,92%,91%,1) 0, transparent 50%)',
             }
           }
         }
@@ -29,10 +33,27 @@
     </script>
     <style>
       body {
-        background-color: #F8FAFC;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #fdfdfd;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        color: #1f2937;
+        overflow-x: hidden;
       }
-      /* Hide scrollbar for clean UI */
+      .bg-mesh {
+        background-image: radial-gradient(at 0% 0%, hsla(161,71%,91%,1) 0, transparent 50%), 
+                          radial-gradient(at 50% 0%, hsla(217,91%,91%,1) 0, transparent 50%), 
+                          radial-gradient(at 100% 0%, hsla(38,92%,91%,1) 0, transparent 50%),
+                          radial-gradient(at 0% 100%, hsla(12,92%,91%,1) 0, transparent 50%),
+                          radial-gradient(at 100% 100%, hsla(161,71%,91%,1) 0, transparent 50%);
+        background-attachment: fixed;
+      }
+      /* Custom Glassmorphism */
+      .glass-card {
+        background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+      }
+      /* Hide scrollbar */
       .no-scrollbar::-webkit-scrollbar {
         display: none;
       }
@@ -40,24 +61,48 @@
         -ms-overflow-style: none;
         scrollbar-width: none;
       }
+      .animate-fade-in {
+        animation: fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(15px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .blob {
+        position: fixed;
+        width: 600px;
+        height: 600px;
+        border-radius: 50%;
+        filter: blur(80px);
+        z-index: -1;
+        opacity: 0.4;
+        animation: drift 20s infinite alternate;
+      }
+      @keyframes drift {
+        from { transform: translate(-10%, -10%) rotate(0deg); }
+        to { transform: translate(10%, 10%) rotate(20deg); }
+      }
     </style>
   <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@^19.2.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
-    "react-confetti": "https://esm.sh/react-confetti@^6.4.0",
-    "date-fns": "https://esm.sh/date-fns@^4.1.0",
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "react-dom/": "https://esm.sh/react-dom@19.0.0/",
+    "react/": "https://esm.sh/react@19.0.0/",
+    "lucide-react": "https://esm.sh/lucide-react@0.460.0",
+    "date-fns": "https://esm.sh/date-fns@4.1.0",
+    "@google/genai": "https://esm.sh/@google/genai",
     "vite": "https://esm.sh/vite@^7.3.0",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "@google/generative-ai": "https://esm.sh/@google/generative-ai@^0.24.1"
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
   }
 }
 </script>
 </head>
-  <body>
+  <body class="bg-mesh min-h-screen no-scrollbar">
+    <!-- Decorative Blobs -->
+    <div class="blob bg-brand-green/20 top-[-200px] left-[-200px]"></div>
+    <div class="blob bg-blue-400/10 bottom-[-200px] right-[-200px]" style="animation-duration: 25s; animation-direction: alternate-reverse;"></div>
     <div id="root"></div>
     <script type="module" src="./index.tsx"></script>
   </body>
