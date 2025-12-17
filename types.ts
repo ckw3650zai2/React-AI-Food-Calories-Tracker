@@ -1,3 +1,4 @@
+
 export enum Gender {
   MALE = 'Male',
   FEMALE = 'Female'
@@ -18,6 +19,14 @@ export interface NutritionGoals {
   fat: number; // grams
 }
 
+export interface Badge {
+  id: string;
+  name: string;
+  description: string;
+  icon: string; // Lucide icon name or emoji
+  earnedDate?: string;
+}
+
 export interface UserProfile {
   name: string;
   age: number;
@@ -28,6 +37,8 @@ export interface UserProfile {
   goals: NutritionGoals;
   streak: number;
   lastLoginDate: string; // YYYY-MM-DD
+  earnedBadges: string[]; // IDs of earned badges
+  totalMealsLogged: number;
 }
 
 export interface FoodItem {
