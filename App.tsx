@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Gender, 
   ActivityLevel, 
@@ -33,7 +33,9 @@ import {
   Star,
   CheckCircle,
   Camera as CameraIcon,
-  Target
+  Target,
+  Eye,
+  Clock
 } from 'lucide-react';
 import { format, isSameDay, subMonths, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth } from 'date-fns';
 
@@ -47,6 +49,7 @@ const BADGES_DATA: Record<string, { name: string; description: string; icon: Rea
   'streak_30': { name: 'Consistency King', description: 'Maintain a 30-day streak.', icon: <Trophy />, color: 'bg-purple-500' },
   'meal_50': { name: 'Master Tracker', description: 'Log 50 total meals.', icon: <Target />, color: 'bg-brand-green' },
   'photo_10': { name: 'Foodie Pro', description: 'Log 10 meals with photos.', icon: <CameraIcon />, color: 'bg-pink-500' },
+  'camera_5': { name: 'Visionary', description: 'Log 5 meals using the camera.', icon: <Eye />, color: 'bg-indigo-500' },
   'sniper': { name: 'Calorie Sniper', description: 'Finish a day within 50kcal of your goal.', icon: <Zap />, color: 'bg-yellow-500' }
 };
 
@@ -65,72 +68,85 @@ const App: React.FC = () => {
   const [pendingImages, setPendingImages] = useState<File[]>([]);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
   
-  // Tooltip state for history
-  const [hoveredDay, setHoveredDay] = useState<{ date: Date; x: number; y: number } | null>(null);
+  // Achievement Logic - Memoized to prevent unnecessary re-runs
+  const checkAchievements = useCallback((currentUser: UserProfile, currentMeals: Meal[]) => {
+    const earned = new Set(currentUser.earnedBadges || []);
+    
+    // 1. Total meal milestones
+    if (currentMeals.length >= 1) earned.add('starter');
+    if (currentMeals.length >= 50) earned.add('meal_50');
+    
+    // 2. Photo & Camera milestones
+    const mealsWithPhotos = currentMeals.filter(m => m.imageUrl);
+    if (mealsWithPhotos.length >= 10) earned.add('photo_10');
+    const mealsWithCamera = currentMeals.filter(m => m.imageUrl && m.imageUrl.startsWith('blob:')); // Assuming blob: means camera/direct upload
+    if (mealsWithCamera.length >= 5) earned.add('camera_5');
+    
+    // 3. Streak milestones
+    if (currentUser.streak >= 7) earned.add('streak_7');
+    if (currentUser.streak >= 30) earned.add('streak_30');
+    
+    // 4. Calorie Sniper
+    const mealsByDate: Record<string, number> = {};
+    currentMeals.forEach(m => {
+      mealsByDate[m.date] = (mealsByDate[m.date] || 0) + m.totalCalories;
+    });
+
+    const goal = currentUser.goals.calories;
+    const hasPerfectDay = Object.keys(mealsByDate).some(date => {
+      const dayTotal = mealsByDate[date];
+      const diff = Math.abs(dayTotal - goal);
+      return diff <= 50;
+    });
+
+    if (hasPerfectDay) earned.add('sniper');
+
+    if (earned.size !== (currentUser.earnedBadges?.length || 0)) {
+      setUser(prev => prev ? {
+        ...prev,
+        earnedBadges: Array.from(earned),
+        totalMealsLogged: currentMeals.length
+      } : null);
+    }
+  }, []);
 
   // Load Data
   useEffect(() => {
     const savedUser = localStorage.getItem(STORAGE_KEY_USER);
     const savedMeals = localStorage.getItem(STORAGE_KEY_MEALS);
 
+    let initialMeals: Meal[] = [];
+    if (savedMeals) {
+      try {
+        initialMeals = JSON.parse(savedMeals);
+        setMeals(initialMeals);
+      } catch (e) {
+        setMeals([]);
+      }
+    }
+
     if (savedUser) {
       try {
         const parsedUser = JSON.parse(savedUser);
-        checkStreak(parsedUser);
+        checkStreak(parsedUser, initialMeals);
       } catch (e) {
         setView('onboarding');
       }
     } else {
       setView('onboarding');
     }
-
-    if (savedMeals) {
-      try {
-        setMeals(JSON.parse(savedMeals));
-      } catch (e) {
-        setMeals([]);
-      }
-    }
-  }, []);
+  }, [checkAchievements]);
 
   // Save Data Effect
   useEffect(() => {
-    if (user) localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
-  }, [user]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_MEALS, JSON.stringify(meals));
-    if (user) checkAchievements(user, meals);
-  }, [meals]);
-
-  // Achievement Logic
-  const checkAchievements = (currentUser: UserProfile, currentMeals: Meal[]) => {
-    const earned = new Set(currentUser.earnedBadges || []);
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const todayMeals = currentMeals.filter(m => m.date === today);
-    const todayCals = todayMeals.reduce((acc, m) => acc + m.totalCalories, 0);
-    const mealWithPhotosCount = currentMeals.filter(m => m.imageUrl).length;
-
-    // Check Starter
-    if (currentMeals.length >= 1) earned.add('starter');
-    // Check Streak
-    if (currentUser.streak >= 7) earned.add('streak_7');
-    if (currentUser.streak >= 30) earned.add('streak_30');
-    // Check Totals
-    if (currentMeals.length >= 50) earned.add('meal_50');
-    // Check Photos
-    if (mealWithPhotosCount >= 10) earned.add('photo_10');
-    // Check Sniper (only if today is ended or near goal)
-    const diff = Math.abs(todayCals - currentUser.goals.calories);
-    if (diff <= 50 && todayMeals.length > 0) earned.add('sniper');
-
-    if (earned.size !== (currentUser.earnedBadges?.length || 0)) {
-      setUser({ ...currentUser, earnedBadges: Array.from(earned), totalMealsLogged: currentMeals.length });
+    if (user) {
+      localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
+      checkAchievements(user, meals);
     }
-  };
+  }, [user, meals, checkAchievements]);
 
   // Streak Logic
-  const checkStreak = (userData: UserProfile) => {
+  const checkStreak = (userData: UserProfile, currentMeals: Meal[]) => {
     const today = format(new Date(), 'yyyy-MM-dd');
     if (userData.lastLoginDate !== today) {
       const yesterday = new Date();
@@ -140,7 +156,7 @@ const App: React.FC = () => {
       let newStreak = userData.streak || 0;
       if (userData.lastLoginDate === yesterdayStr) {
         newStreak += 1;
-      } else {
+      } else if (userData.lastLoginDate !== today) {
         const lastLogin = new Date(userData.lastLoginDate);
         const diffTime = Math.abs(new Date().getTime() - lastLogin.getTime());
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
@@ -153,7 +169,7 @@ const App: React.FC = () => {
         streak: newStreak, 
         lastLoginDate: today,
         earnedBadges: userData.earnedBadges || [],
-        totalMealsLogged: userData.totalMealsLogged || 0
+        totalMealsLogged: currentMeals.length || userData.totalMealsLogged || 0
       };
       setUser(updatedUser);
       setView('dashboard');
@@ -161,13 +177,12 @@ const App: React.FC = () => {
       setUser({
         ...userData,
         earnedBadges: userData.earnedBadges || [],
-        totalMealsLogged: userData.totalMealsLogged || 0
+        totalMealsLogged: currentMeals.length || userData.totalMealsLogged || 0
       });
       setView('dashboard');
     }
   };
 
-  // Calculations
   const calculateGoals = (age: number, gender: Gender, weight: number, height: number, activity: ActivityLevel) => {
     let bmr = 10 * weight + 6.25 * height - 5 * age;
     bmr += gender === Gender.MALE ? 5 : -161;
@@ -209,7 +224,6 @@ const App: React.FC = () => {
     setView('dashboard');
   };
 
-  // Dashboard Logic
   const todayMeals = useMemo(() => {
     const today = format(new Date(), 'yyyy-MM-dd');
     return meals.filter(m => m.date === today);
@@ -224,7 +238,6 @@ const App: React.FC = () => {
     }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
   }, [todayMeals]);
 
-  // Image Handling
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setPendingImages(Array.from(e.target.files));
@@ -294,7 +307,6 @@ const App: React.FC = () => {
     setEditingMealId(null);
   };
 
-  // Views
   const OnboardingView = () => (
     <div className="min-h-screen flex items-center justify-center p-4 animate-fade-in relative z-10">
       <div className="w-full max-w-lg">
@@ -383,9 +395,11 @@ const App: React.FC = () => {
     <div className="max-w-5xl mx-auto px-4 pb-24 animate-fade-in relative z-10">
       <Navbar />
       <div className="relative mb-10 group">
-        <div className="absolute -top-10 -left-10 w-40 h-40 bg-brand-green/30 blur-[100px] rounded-full z-0 group-hover:scale-150 transition-transform duration-1000"></div>
-        <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-blue-400/20 blur-[100px] rounded-full z-0 group-hover:scale-150 transition-transform duration-1000"></div>
-        <div className="glass-card rounded-[3rem] p-10 shadow-2xl relative z-10 overflow-hidden">
+        <div className="absolute -top-12 -left-12 w-64 h-64 bg-brand-green/30 blur-[120px] rounded-full z-0 group-hover:scale-125 transition-transform duration-1000 animate-pulse"></div>
+        <div className="absolute -bottom-12 -right-12 w-64 h-64 bg-blue-400/20 blur-[120px] rounded-full z-0 group-hover:scale-125 transition-transform duration-1000 animate-pulse" style={{ animationDelay: '1s' }}></div>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-pink-300/10 blur-[140px] rounded-full z-0 pointer-events-none"></div>
+        
+        <div className="glass-card rounded-[3rem] p-10 shadow-2xl shadow-gray-200/50 mb-10 border-white/60 relative z-10 overflow-hidden">
           <div className="flex justify-between items-center mb-10">
             <div>
               <h2 className="text-3xl font-black text-gray-900 mb-1">Daily Overview</h2>
@@ -449,58 +463,7 @@ const App: React.FC = () => {
       ) : (
         <div className="grid gap-6">
             {todayMeals.map((meal) => (
-                <div key={meal.id} className="glass-card p-8 rounded-[2.5rem] shadow-xl hover:scale-[1.01] transition-all duration-300 group">
-                    <div className="flex justify-between items-start mb-8">
-                        <div className="flex items-center gap-6">
-                             {meal.imageUrl && (
-                                 <div className="relative">
-                                     <img src={meal.imageUrl} alt={meal.name} className="w-28 h-28 rounded-3xl object-cover shadow-2xl ring-4 ring-white" />
-                                 </div>
-                             )}
-                             <div>
-                                 <h4 className="font-black text-gray-900 text-2xl tracking-tight mb-1">{meal.name}</h4>
-                                 <p className="text-xs text-gray-400 font-black uppercase tracking-widest flex items-center gap-2">
-                                     <CalendarIcon size={14} className="text-brand-green" /> {format(meal.timestamp, 'h:mm a')}
-                                 </p>
-                             </div>
-                        </div>
-                        <div className="flex gap-2">
-                            <button className="p-3 text-gray-300 hover:text-brand-green hover:bg-emerald-50 rounded-2xl transition-all" onClick={() => handleEditMeal(meal)}>
-                                <Pencil size={20} />
-                            </button>
-                            <button className="p-3 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all" onClick={() => setMeals(meals.filter(m => m.id !== meal.id))}>
-                                <X size={24} />
-                            </button>
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-4 gap-4 bg-white/40 p-6 rounded-3xl border border-white/50">
-                        <div className="text-center">
-                            <span className="block text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Calories</span>
-                            <span className="font-black text-brand-green text-2xl">{Math.round(meal.totalCalories)}</span>
-                        </div>
-                        <div className="text-center border-l border-gray-100">
-                            <span className="block text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Protein</span>
-                            <span className="font-black text-gray-900 text-2xl">{Math.round(meal.totalProtein)}g</span>
-                        </div>
-                        <div className="text-center border-l border-gray-100">
-                            <span className="block text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Carbs</span>
-                            <span className="font-black text-gray-900 text-2xl">{Math.round(meal.totalCarbs)}g</span>
-                        </div>
-                        <div className="text-center border-l border-gray-100">
-                            <span className="block text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Fat</span>
-                            <span className="font-black text-gray-900 text-2xl">{Math.round(meal.totalFat)}g</span>
-                        </div>
-                    </div>
-                    <div className="mt-6 pt-6 border-t border-dashed border-gray-200">
-                         <div className="flex flex-wrap gap-3">
-                            {meal.items.map((item, idx) => (
-                                <span key={idx} className="bg-white/80 text-gray-600 text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl border border-white/50 shadow-sm">
-                                    {item.name} <span className="text-brand-green ml-1">{Math.round(item.calories)} CAL</span>
-                                </span>
-                            ))}
-                         </div>
-                    </div>
-                </div>
+                <MealCard key={meal.id} meal={meal} onEdit={handleEditMeal} onDelete={(id) => setMeals(meals.filter(m => m.id !== id))} />
             ))}
         </div>
       )}
@@ -508,8 +471,14 @@ const App: React.FC = () => {
   );
 
   const MealHistoryView = () => {
-    const [currentDate, setCurrentDate] = useState(new Date());
-    const daysInMonth = eachDayOfInterval({ start: startOfWeek(startOfMonth(currentDate)), end: endOfWeek(endOfMonth(currentDate)) });
+    const [currentMonth, setCurrentMonth] = useState(new Date());
+    const [selectedDate, setSelectedDate] = useState(new Date());
+    
+    const daysInMonth = eachDayOfInterval({ 
+      start: startOfWeek(startOfMonth(currentMonth)), 
+      end: endOfWeek(endOfMonth(currentMonth)) 
+    });
+
     const getDayStatus = (day: Date) => {
         const dayStr = format(day, 'yyyy-MM-dd');
         const dayMeals = meals.filter(m => m.date === dayStr);
@@ -517,69 +486,80 @@ const App: React.FC = () => {
         const dayCals = dayMeals.reduce((acc, m) => acc + m.totalCalories, 0);
         return dayCals >= (user?.goals.calories || 2000) ? 'met' : 'partial';
     };
-    const getDailySummary = (day: Date) => {
-      const dayStr = format(day, 'yyyy-MM-dd');
-      const dayMeals = meals.filter(m => m.date === dayStr);
-      return dayMeals.reduce((acc, meal) => ({
-        calories: acc.calories + meal.totalCalories,
-        protein: acc.protein + meal.totalProtein,
-        carbs: acc.carbs + meal.totalCarbs,
-        fat: acc.fat + meal.totalFat,
-        count: acc.count + 1
-      }), { calories: 0, protein: 0, carbs: 0, fat: 0, count: 0 });
-    };
+
+    const mealsForSelectedDate = useMemo(() => {
+        const selectedStr = format(selectedDate, 'yyyy-MM-dd');
+        return meals.filter(m => m.date === selectedStr);
+    }, [meals, selectedDate]);
+    
     return (
         <div className="max-w-5xl mx-auto px-4 pb-24 min-h-screen animate-fade-in relative z-10">
              <Navbar />
-             {hoveredDay && (
-               <div className="fixed z-[100] pointer-events-none transform -translate-x-1/2 -translate-y-full mb-4 animate-fade-in" style={{ left: hoveredDay.x, top: hoveredDay.y - 10 }}>
-                 <div className="glass-card p-4 rounded-2xl shadow-2xl min-w-[180px]">
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1">
-                      <Zap size={10} className="text-brand-green" /> {format(hoveredDay.date, 'MMM d, yyyy')}
-                    </p>
-                    {(() => {
-                      const summary = getDailySummary(hoveredDay.date);
-                      if (summary.count === 0) return <p className="text-xs font-bold text-gray-300 italic">No meals logged</p>;
-                      return (
-                        <div className="space-y-1.5">
-                           <div className="flex justify-between items-center text-sm">
-                              <span className="font-bold text-gray-500 text-xs uppercase">Calories</span>
-                              <span className="font-black text-brand-green">{Math.round(summary.calories)}</span>
-                           </div>
-                        </div>
-                      )
-                    })()}
-                 </div>
-                 <div className="w-3 h-3 bg-white/70 backdrop-blur-md rotate-45 mx-auto -mt-1.5 border-r border-b border-white/30"></div>
-               </div>
-             )}
              <div className="glass-card rounded-[3rem] p-10 shadow-2xl mb-8">
                  <div className="flex justify-between items-center mb-10 flex-wrap gap-6">
                      <h2 className="text-3xl font-black flex items-center gap-4">
                         <CalendarIcon size={32} className="text-brand-green" /> Journey Map
                      </h2>
                      <div className="flex items-center gap-3 bg-white/50 rounded-2xl p-2 border border-white shadow-sm">
-                        <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} className="p-3 hover:bg-white rounded-xl shadow-sm transition"><ChevronLeft size={20}/></button>
-                        <span className="font-black w-44 text-center text-sm uppercase tracking-widest">{format(currentDate, 'MMMM yyyy')}</span>
-                        <button onClick={() => setCurrentDate(addMonths(currentDate, 1))} className="p-3 hover:bg-white rounded-xl shadow-sm transition"><ChevronRight size={20}/></button>
+                        <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-3 hover:bg-white rounded-xl shadow-sm transition"><ChevronLeft size={20}/></button>
+                        <span className="font-black w-44 text-center text-sm uppercase tracking-widest">{format(currentMonth, 'MMMM yyyy')}</span>
+                        <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-3 hover:bg-white rounded-xl shadow-sm transition"><ChevronRight size={20}/></button>
                      </div>
                  </div>
                  <div className="grid grid-cols-7 gap-4">
+                     {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                       <div key={d} className="text-center text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">{d}</div>
+                     ))}
                      {daysInMonth.map((day, i) => {
                          const status = getDayStatus(day);
-                         const isSelectedMonth = isSameMonth(day, currentDate);
+                         const isSelectedMonth = isSameMonth(day, currentMonth);
+                         const isSelected = isSameDay(day, selectedDate);
                          const isToday = isSameDay(day, new Date());
+                         
                          let bgClass = "bg-white/30 hover:bg-white/60 border border-white/40";
                          let textClass = isSelectedMonth ? "text-gray-900 font-black" : "text-gray-200";
-                         if (status === 'met') { bgClass = "bg-brand-green text-white scale-105 border-transparent"; textClass = "text-white font-black"; }
+                         
+                         if (status === 'met') { bgClass = "bg-brand-green text-white border-transparent"; textClass = "text-white font-black"; }
                          else if (status === 'partial') { bgClass = "bg-orange-100 border-orange-200/50"; textClass = "text-orange-700 font-black"; }
+                         
                          return (
-                             <div key={i} onMouseEnter={(e) => setHoveredDay({ date: day, x: e.clientX, y: e.clientY })} onMouseLeave={() => setHoveredDay(null)} className={`aspect-square w-full max-w-[60px] mx-auto rounded-2xl flex items-center justify-center text-base cursor-default relative ${bgClass} ${textClass}`}>
+                             <button 
+                                key={i} 
+                                onClick={() => setSelectedDate(day)}
+                                className={`aspect-square w-full max-w-[60px] mx-auto rounded-2xl flex items-center justify-center text-base transition-all duration-300 relative group
+                                    ${bgClass} ${textClass}
+                                    ${isSelected ? 'ring-4 ring-brand-green ring-offset-2 scale-110 z-10 shadow-xl' : 'hover:scale-105'}
+                                `}
+                             >
                                  {format(day, 'd')}
-                             </div>
+                                 {isToday && !isSelected && <div className="absolute bottom-1 w-1 h-1 bg-brand-green rounded-full"></div>}
+                             </button>
                          )
                      })}
                  </div>
+             </div>
+
+             <div className="space-y-6">
+                <div className="flex justify-between items-center px-4">
+                    <h3 className="text-2xl font-black text-gray-900 flex items-center gap-3">
+                        <Clock className="text-brand-green" /> {isSameDay(selectedDate, new Date()) ? "Today's Log" : format(selectedDate, 'MMM do, yyyy')}
+                    </h3>
+                    <div className="bg-white/60 px-4 py-2 rounded-2xl border border-white text-xs font-black uppercase tracking-widest text-gray-400">
+                        {mealsForSelectedDate.length} {mealsForSelectedDate.length === 1 ? 'Meal' : 'Meals'}
+                    </div>
+                </div>
+
+                {mealsForSelectedDate.length === 0 ? (
+                    <div className="glass-card rounded-[3rem] p-16 text-center border-white/60">
+                        <p className="text-gray-400 font-bold italic">No meals recorded for this day.</p>
+                    </div>
+                ) : (
+                    <div className="grid gap-6">
+                        {mealsForSelectedDate.map((meal) => (
+                            <MealCard key={meal.id} meal={meal} onEdit={handleEditMeal} onDelete={(id) => setMeals(meals.filter(m => m.id !== id))} />
+                        ))}
+                    </div>
+                )}
              </div>
         </div>
     );
@@ -588,9 +568,7 @@ const App: React.FC = () => {
   const ProfileView = () => (
       <div className="max-w-5xl mx-auto px-4 pb-24 min-h-screen animate-fade-in relative z-10">
           <Navbar />
-          
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* User Stats Card */}
             <div className="lg:col-span-1 space-y-8">
                 <div className="glass-card rounded-[3rem] p-10 shadow-2xl text-center relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-24 h-24 bg-brand-green/10 blur-3xl -mr-10 -mt-10"></div>
@@ -599,7 +577,6 @@ const App: React.FC = () => {
                     </div>
                     <h2 className="text-3xl font-black text-gray-900 mb-1">Health Profile</h2>
                     <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-8">Logged in as {user?.name}</p>
-                    
                     <div className="space-y-4">
                         <div className="flex justify-between p-4 bg-white/50 rounded-2xl border border-white">
                             <span className="text-xs font-black text-gray-400 uppercase">Weight</span>
@@ -618,12 +595,10 @@ const App: React.FC = () => {
                             <span className="font-black">{user?.goals.calories} kcal</span>
                         </div>
                     </div>
-
                     <button onClick={() => setView('onboarding')} className="w-full mt-10 py-4 bg-gray-100/50 hover:bg-gray-100 text-gray-400 hover:text-gray-900 rounded-2xl font-black text-[11px] uppercase tracking-widest transition flex items-center justify-center gap-2">
                         <Settings size={16} /> Edit Profile
                     </button>
                 </div>
-
                 <div className="glass-card rounded-[3rem] p-10 shadow-2xl bg-brand-dark text-white">
                     <h3 className="text-2xl font-black mb-6 flex items-center gap-3">
                         <Star className="text-yellow-400" fill="currentColor" /> Stats
@@ -640,8 +615,6 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </div>
-
-            {/* Badges Section */}
             <div className="lg:col-span-2">
                 <div className="glass-card rounded-[3rem] p-10 shadow-2xl min-h-full border-white/60">
                     <div className="flex justify-between items-center mb-10">
@@ -655,14 +628,12 @@ const App: React.FC = () => {
                             {user?.earnedBadges?.length || 0} / {Object.keys(BADGES_DATA).length} EARNED
                         </div>
                     </div>
-
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {Object.entries(BADGES_DATA).map(([id, data]) => {
                             const isEarned = user?.earnedBadges?.includes(id);
                             return (
                                 <div key={id} className={`p-6 rounded-[2.5rem] border-2 transition-all duration-500 flex items-center gap-6 ${isEarned ? 'border-brand-green bg-white shadow-xl scale-105' : 'border-dashed border-gray-200 opacity-60 grayscale'}`}>
                                     <div className={`w-20 h-20 rounded-3xl flex items-center justify-center text-white shadow-lg ${isEarned ? data.color : 'bg-gray-100 text-gray-400'}`}>
-                                        {/* Fix for line 665: Cast to ReactElement with expected props to resolve TypeScript error */}
                                         {React.cloneElement(data.icon as React.ReactElement<{ size?: number }>, { size: 36 })}
                                     </div>
                                     <div className="flex-1">
@@ -678,7 +649,6 @@ const App: React.FC = () => {
                             );
                         })}
                     </div>
-
                     <div className="mt-12 p-8 bg-gray-50/50 rounded-[2rem] border border-dashed border-gray-200 text-center">
                         <p className="text-gray-400 text-xs font-bold uppercase tracking-widest">More milestones coming soon...</p>
                     </div>
@@ -705,5 +675,61 @@ const App: React.FC = () => {
     </div>
   );
 };
+
+// Reusable Meal Card Component for Dashboard and History
+const MealCard: React.FC<{ meal: Meal; onEdit: (meal: Meal) => void; onDelete: (id: string) => void }> = ({ meal, onEdit, onDelete }) => (
+    <div className="glass-card p-8 rounded-[2.5rem] shadow-xl hover:scale-[1.01] transition-all duration-300 group">
+        <div className="flex justify-between items-start mb-8">
+            <div className="flex items-center gap-6">
+                 {meal.imageUrl && (
+                     <div className="relative">
+                         <img src={meal.imageUrl} alt={meal.name} className="w-28 h-28 rounded-3xl object-cover shadow-2xl ring-4 ring-white" />
+                     </div>
+                 )}
+                 <div>
+                     <h4 className="font-black text-gray-900 text-2xl tracking-tight mb-1">{meal.name}</h4>
+                     <p className="text-xs text-gray-400 font-black uppercase tracking-widest flex items-center gap-2">
+                         <Clock size={14} className="text-brand-green" /> {format(meal.timestamp, 'h:mm a')}
+                     </p>
+                 </div>
+            </div>
+            <div className="flex gap-2">
+                <button className="p-3 text-gray-300 hover:text-brand-green hover:bg-emerald-50 rounded-2xl transition-all" onClick={() => onEdit(meal)}>
+                    <Pencil size={20} />
+                </button>
+                <button className="p-3 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all" onClick={() => onDelete(meal.id)}>
+                    <X size={24} />
+                </button>
+            </div>
+        </div>
+        <div className="grid grid-cols-4 gap-4 bg-white/40 p-6 rounded-3xl border border-white/50">
+            <div className="text-center">
+                <span className="block text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Calories</span>
+                <span className="font-black text-brand-green text-2xl">{Math.round(meal.totalCalories)}</span>
+            </div>
+            <div className="text-center border-l border-gray-100">
+                <span className="block text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Protein</span>
+                <span className="font-black text-gray-900 text-2xl">{Math.round(meal.totalProtein)}g</span>
+            </div>
+            <div className="text-center border-l border-gray-100">
+                <span className="block text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Carbs</span>
+                <span className="font-black text-gray-900 text-2xl">{Math.round(meal.totalCarbs)}g</span>
+            </div>
+            <div className="text-center border-l border-gray-100">
+                <span className="block text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Fat</span>
+                <span className="font-black text-gray-900 text-2xl">{Math.round(meal.totalFat)}g</span>
+            </div>
+        </div>
+        <div className="mt-6 pt-6 border-t border-dashed border-gray-200">
+             <div className="flex flex-wrap gap-3">
+                {meal.items.map((item, idx) => (
+                    <span key={idx} className="bg-white/80 text-gray-600 text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl border border-white/50 shadow-sm">
+                        {item.name} <span className="text-brand-green ml-1">{Math.round(item.calories)} CAL</span>
+                    </span>
+                ))}
+             </div>
+        </div>
+    </div>
+);
 
 export default App;
