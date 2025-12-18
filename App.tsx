@@ -358,42 +358,45 @@ const App: React.FC = () => {
   );
 
   const Navbar = () => (
-    <div className="flex justify-between items-center py-6 px-4 mb-4 sticky top-0 z-40">
-      <div className="flex items-center gap-2">
-         {user && (
-           <div className="bg-white/80 backdrop-blur-md text-orange-600 px-5 py-2 rounded-2xl text-sm font-black flex items-center gap-2 shadow-sm border border-white/50">
-             <Flame size={18} fill="currentColor" /> {user.streak} DAY STREAK
-           </div>
-         )}
+    <header className="sticky top-0 z-40 w-full bg-white/60 backdrop-blur-xl border-b border-white/40 shadow-sm">
+      <div className="max-w-5xl mx-auto flex justify-between items-center py-4 px-6">
+        <div className="flex items-center gap-2">
+           {user && (
+             <div className="bg-white/80 text-orange-600 px-4 py-1.5 rounded-xl text-xs font-black flex items-center gap-2 shadow-sm border border-white/50">
+               <Flame size={16} fill="currentColor" /> {user.streak} DAY STREAK
+             </div>
+           )}
+        </div>
+        <div className="text-center">
+          <h1 className="text-xl md:text-2xl font-black text-gray-900 tracking-tighter uppercase cursor-pointer" onClick={() => { setView('dashboard'); setShowMenu(false); }}>
+            NuTrack <span className="text-brand-green">AI</span>
+          </h1>
+        </div>
+        <div className="relative">
+          <button onClick={() => setShowMenu(!showMenu)} className="p-2.5 bg-white/80 hover:bg-white rounded-xl transition shadow-sm border border-white/50">
+            <Menu size={20} className="text-gray-900" />
+          </button>
+          {showMenu && (
+            <div className="absolute right-0 top-14 bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/50 w-64 py-4 overflow-hidden animate-fade-in z-50">
+              <button onClick={() => { setView('dashboard'); setShowMenu(false); }} className="w-full text-left px-6 py-4 hover:bg-brand-green/10 flex items-center gap-4 text-gray-800 font-bold transition-colors">
+                 <TrendingUp size={20} className="text-brand-green" /> Dashboard
+              </button>
+              <button onClick={() => { setView('history'); setShowMenu(false); }} className="w-full text-left px-6 py-4 hover:bg-brand-green/10 flex items-center gap-4 text-gray-800 font-bold transition-colors">
+                <History size={20} className="text-brand-green" /> Meal History
+              </button>
+              <div className="h-px bg-gray-100 my-2 mx-6"></div>
+              <button onClick={() => { setView('profile'); setShowMenu(false); }} className="w-full text-left px-6 py-4 hover:bg-brand-green/10 flex items-center gap-4 text-gray-800 font-bold transition-colors">
+                <Trophy size={20} className="text-brand-green" /> Profile & Badges
+              </button>
+            </div>
+          )}
+        </div>
       </div>
-      <div className="text-center">
-        <h1 className="text-2xl font-black text-gray-900 tracking-tighter uppercase cursor-pointer" onClick={() => setView('dashboard')}>NuTrack <span className="text-brand-green">AI</span></h1>
-      </div>
-      <div className="relative">
-        <button onClick={() => setShowMenu(!showMenu)} className="p-3 bg-white/80 backdrop-blur-md hover:bg-white rounded-2xl transition shadow-sm border border-white/50">
-          <Menu size={24} className="text-gray-900" />
-        </button>
-        {showMenu && (
-          <div className="absolute right-0 top-14 bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/50 w-64 py-4 overflow-hidden animate-fade-in z-50">
-            <button onClick={() => { setView('dashboard'); setShowMenu(false); }} className="w-full text-left px-6 py-4 hover:bg-brand-green/10 flex items-center gap-4 text-gray-800 font-bold transition-colors">
-               <TrendingUp size={20} className="text-brand-green" /> Dashboard
-            </button>
-            <button onClick={() => { setView('history'); setShowMenu(false); }} className="w-full text-left px-6 py-4 hover:bg-brand-green/10 flex items-center gap-4 text-gray-800 font-bold transition-colors">
-              <History size={20} className="text-brand-green" /> Meal History
-            </button>
-            <div className="h-px bg-gray-100 my-2 mx-6"></div>
-            <button onClick={() => { setView('profile'); setShowMenu(false); }} className="w-full text-left px-6 py-4 hover:bg-brand-green/10 flex items-center gap-4 text-gray-800 font-bold transition-colors">
-              <Trophy size={20} className="text-brand-green" /> Profile & Badges
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
+    </header>
   );
 
   const DashboardView = () => (
-    <div className="max-w-5xl mx-auto px-4 pb-24 animate-fade-in relative z-10">
-      <Navbar />
+    <div className="pb-24 animate-fade-in relative z-10 pt-4">
       <div className="relative mb-10 group">
         <div className="absolute -top-12 -left-12 w-64 h-64 bg-brand-green/30 blur-[120px] rounded-full z-0 group-hover:scale-125 transition-transform duration-1000 animate-pulse"></div>
         <div className="absolute -bottom-12 -right-12 w-64 h-64 bg-blue-400/20 blur-[120px] rounded-full z-0 group-hover:scale-125 transition-transform duration-1000 animate-pulse" style={{ animationDelay: '1s' }}></div>
@@ -411,11 +414,11 @@ const App: React.FC = () => {
                 </div>
             )}
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-8">
-            <CircularProgress value={totals.calories} max={user?.goals.calories || 2000} color="#10B981" label="Calories" subLabel="kcal" size={140} />
-            <CircularProgress value={totals.protein} max={user?.goals.protein || 150} color="#3B82F6" label="Protein" subLabel="g" size={140} />
-            <CircularProgress value={totals.carbs} max={user?.goals.carbs || 250} color="#F59E0B" label="Carbs" subLabel="g" size={140} />
-            <CircularProgress value={totals.fat} max={user?.goals.fat || 70} color="#EF4444" label="Fat" subLabel="g" size={140} />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-8">
+            <CircularProgress value={totals.calories} max={user?.goals.calories || 2000} color="#10B981" label="Calories" subLabel="kcal" size={110} />
+            <CircularProgress value={totals.protein} max={user?.goals.protein || 150} color="#3B82F6" label="Protein" subLabel="g" size={110} />
+            <CircularProgress value={totals.carbs} max={user?.goals.carbs || 250} color="#F59E0B" label="Carbs" subLabel="g" size={110} />
+            <CircularProgress value={totals.fat} max={user?.goals.fat || 70} color="#EF4444" label="Fat" subLabel="g" size={110} />
           </div>
         </div>
       </div>
@@ -493,8 +496,7 @@ const App: React.FC = () => {
     }, [meals, selectedDate]);
     
     return (
-        <div className="max-w-5xl mx-auto px-4 pb-24 min-h-screen animate-fade-in relative z-10">
-             <Navbar />
+        <div className="pb-24 min-h-screen animate-fade-in relative z-10 pt-4">
              <div className="glass-card rounded-[3rem] p-10 shadow-2xl mb-8">
                  <div className="flex justify-between items-center mb-10 flex-wrap gap-6">
                      <h2 className="text-3xl font-black flex items-center gap-4">
@@ -566,8 +568,7 @@ const App: React.FC = () => {
   };
 
   const ProfileView = () => (
-      <div className="max-w-5xl mx-auto px-4 pb-24 min-h-screen animate-fade-in relative z-10">
-          <Navbar />
+      <div className="pb-24 min-h-screen animate-fade-in relative z-10 pt-4">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-1 space-y-8">
                 <div className="glass-card rounded-[3rem] p-10 shadow-2xl text-center relative overflow-hidden">
@@ -660,10 +661,13 @@ const App: React.FC = () => {
 
   return (
     <div className="no-scrollbar min-h-screen">
-      {view === 'onboarding' && <OnboardingView />}
-      {view === 'dashboard' && <DashboardView />}
-      {view === 'history' && <MealHistoryView />}
-      {view === 'profile' && <ProfileView />}
+      {view !== 'onboarding' && <Navbar />}
+      <main className="max-w-5xl mx-auto px-4">
+        {view === 'onboarding' && <OnboardingView />}
+        {view === 'dashboard' && <DashboardView />}
+        {view === 'history' && <MealHistoryView />}
+        {view === 'profile' && <ProfileView />}
+      </main>
       {showCamera && <CameraModal onClose={() => setShowCamera(false)} onCapture={handleCameraCapture} />}
       {showNutritionModal && (
         <NutritionModal 
@@ -676,7 +680,7 @@ const App: React.FC = () => {
   );
 };
 
-// Reusable Meal Card Component for Dashboard and History
+// Reusable Meal Card Component
 const MealCard: React.FC<{ meal: Meal; onEdit: (meal: Meal) => void; onDelete: (id: string) => void }> = ({ meal, onEdit, onDelete }) => (
     <div className="glass-card p-8 rounded-[2.5rem] shadow-xl hover:scale-[1.01] transition-all duration-300 group">
         <div className="flex justify-between items-start mb-8">
