@@ -12,11 +12,18 @@ export enum ActivityLevel {
   EXTRA = 'Extra Active (physical job or training)'
 }
 
+export enum GoalType {
+  WEIGHT_LOSS = 'Weight Loss',
+  MAINTENANCE = 'Maintenance',
+  MUSCLE_GAIN = 'Muscle Gain'
+}
+
 export interface NutritionGoals {
   calories: number;
   protein: number; // grams
   carbs: number; // grams
   fat: number; // grams
+  type?: GoalType;
 }
 
 export interface Badge {

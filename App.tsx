@@ -4,10 +4,12 @@ import {
   ActivityLevel, 
   UserProfile, 
   Meal, 
-  FoodItem
+  FoodItem,
+  GoalType
 } from './types';
 import { supabase, isSupabaseConfigured } from './services/supabaseClient';
 import { analyzeMealImage } from './services/geminiService';
+import { optimizeImage } from './services/imageOptimizer';
 import CircularProgress from './components/CircularProgress';
 import CameraModal from './components/CameraModal';
 import NutritionModal from './components/NutritionModal';
@@ -39,7 +41,9 @@ import {
   Mail,
   Loader2,
   LogOut,
-  AlertTriangle
+  AlertTriangle,
+  ShieldCheck,
+  Trash2
 } from 'lucide-react';
 import { format, isSameDay, subMonths, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth } from 'date-fns';
 
@@ -74,6 +78,7 @@ const App: React.FC = () => {
   // Modals state
   const [showCamera, setShowCamera] = useState(false);
   const [showNutritionModal, setShowNutritionModal] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
   const [currentAnalysis, setCurrentAnalysis] = useState<FoodItem[]>([]);
   const [suggestedMealName, setSuggestedMealName] = useState<string>('');
   const [pendingImages, setPendingImages] = useState<File[]>([]);
@@ -376,9 +381,11 @@ const App: React.FC = () => {
     }
   };
 
-  const calculateGoals = (age: number, gender: Gender, weight: number, height: number, activity: ActivityLevel) => {
+  const calculateGoals = (age: number, gender: Gender, weight: number, height: number, activity: ActivityLevel, goalType: GoalType) => {
+    // Mifflin-St Jeor Equation
     let bmr = 10 * weight + 6.25 * height - 5 * age;
     bmr += gender === Gender.MALE ? 5 : -161;
+    
     let multiplier = 1.2;
     switch (activity) {
       case ActivityLevel.SEDENTARY: multiplier = 1.2; break;
@@ -387,12 +394,40 @@ const App: React.FC = () => {
       case ActivityLevel.ACTIVE: multiplier = 1.725; break;
       case ActivityLevel.EXTRA: multiplier = 1.9; break;
     }
+    
     const tdee = Math.round(bmr * multiplier);
+    let targetCalories = tdee;
+    
+    // Macro Ratios (Protein/Carb/Fat)
+    let pRatio = 0.3; 
+    let cRatio = 0.4;
+    let fRatio = 0.3;
+
+    if (goalType === GoalType.WEIGHT_LOSS) {
+      targetCalories = Math.round(tdee * 0.80); // 20% Deficit
+      // Higher protein for satiety and muscle retention
+      pRatio = 0.40;
+      cRatio = 0.30;
+      fRatio = 0.30;
+    } else if (goalType === GoalType.MUSCLE_GAIN) {
+      targetCalories = Math.round(tdee * 1.10); // 10% Surplus
+      // Higher carbs for energy
+      pRatio = 0.30;
+      cRatio = 0.50;
+      fRatio = 0.20;
+    } else {
+      // Maintenance
+      pRatio = 0.30;
+      cRatio = 0.35;
+      fRatio = 0.35;
+    }
+
     return {
-      calories: tdee,
-      protein: Math.round((tdee * 0.3) / 4),
-      carbs: Math.round((tdee * 0.4) / 4),
-      fat: Math.round((tdee * 0.3) / 9)
+      calories: targetCalories,
+      protein: Math.round((targetCalories * pRatio) / 4),
+      carbs: Math.round((targetCalories * cRatio) / 4),
+      fat: Math.round((targetCalories * fRatio) / 9),
+      type: goalType
     };
   };
 
@@ -401,35 +436,38 @@ const App: React.FC = () => {
     if (!session?.user?.id) return;
 
     const formData = new FormData(e.currentTarget);
+    const nameInput = formData.get('name') as string;
     const age = Number(formData.get('age'));
     const weight = Number(formData.get('weight'));
     const height = Number(formData.get('height'));
     const gender = formData.get('gender') as Gender;
     const activity = formData.get('activity') as ActivityLevel;
+    const goalType = formData.get('goalType') as GoalType;
 
-    if (isNaN(age) || age <= 0 || age > 120) return alert("Valid age required.");
-    if (isNaN(weight) || weight <= 10 || weight > 600) return alert("Valid weight required.");
-    if (isNaN(height) || height <= 50 || height > 280) return alert("Valid height required.");
+    if (!nameInput || nameInput.trim().length === 0) return alert("Please enter your display name.");
+    if (isNaN(age) || age <= 0 || age > 120) return alert("Please enter a valid age between 1 and 120 years.");
+    if (isNaN(weight) || weight <= 10 || weight > 600) return alert("Please enter a valid weight between 10kg and 600kg.");
+    if (isNaN(height) || height <= 50 || height > 280) return alert("Please enter a valid height between 50cm and 280cm.");
 
-    const goals = calculateGoals(age, gender, weight, height, activity);
+    const goals = calculateGoals(age, gender, weight, height, activity, goalType);
     const now = Date.now();
     
     const profileData = {
       id: session.user.id,
       email: session.user.email,
-      name: user?.name || 'User',
+      name: nameInput.trim(),
       age,
       gender,
       weight,
       height,
       activity_level: activity,
-      goals,
-      streak: 1,
-      last_login_date: format(new Date(), 'yyyy-MM-dd'),
-      last_login_timestamp: now,
-      last_meal_timestamp: now,
-      earned_badges: [],
-      total_meals_logged: 0
+      goals, // Saves goalType inside the JSON
+      streak: user?.streak || 1,
+      last_login_date: user?.lastLoginDate || format(new Date(), 'yyyy-MM-dd'),
+      last_login_timestamp: user?.lastLoginTimestamp || now,
+      last_meal_timestamp: user?.lastMealTimestamp || now,
+      earned_badges: user?.earnedBadges || [],
+      total_meals_logged: user?.totalMealsLogged || 0
     };
 
     const { error } = await supabase.from('profiles').upsert(profileData);
@@ -438,17 +476,16 @@ const App: React.FC = () => {
         return;
     }
 
-    // Convert back to camelCase for local state
     const newUser: UserProfile = {
       name: profileData.name,
       age, weight, height, gender, activityLevel: activity,
       goals,
-      streak: 1,
+      streak: profileData.streak,
       lastLoginDate: profileData.last_login_date,
-      lastLoginTimestamp: now,
-      lastMealTimestamp: now,
-      earnedBadges: [],
-      totalMealsLogged: 0
+      lastLoginTimestamp: profileData.last_login_timestamp,
+      lastMealTimestamp: profileData.last_meal_timestamp,
+      earnedBadges: profileData.earned_badges,
+      totalMealsLogged: profileData.total_meals_logged
     };
 
     setUser(newUser);
@@ -505,11 +542,22 @@ const App: React.FC = () => {
 
   const uploadMealImage = async (file: File, userId: string): Promise<string | null> => {
       try {
-          const fileExt = file.name.split('.').pop();
+          // Optimize image before upload to save space
+          let fileToUpload = file;
+          let fileExt = file.name.split('.').pop();
+          
+          try {
+            fileToUpload = await optimizeImage(file);
+            // Optimizer converts to JPEG
+            fileExt = 'jpg';
+          } catch (optError) {
+            console.warn("Optimization failed, using original file", optError);
+          }
+
           const fileName = `${userId}/${Date.now()}.${fileExt}`;
           const { error: uploadError } = await supabase.storage
               .from('meal_images')
-              .upload(fileName, file);
+              .upload(fileName, fileToUpload);
           
           if (uploadError) throw uploadError;
 
@@ -708,10 +756,60 @@ const App: React.FC = () => {
                          </button>
                      </form>
                  )}
+                 <div className="pt-4 border-t border-gray-100 flex justify-center">
+                    <button onClick={() => setShowPrivacy(true)} className="flex items-center gap-2 text-[10px] text-gray-400 font-bold uppercase tracking-widest hover:text-brand-green transition-colors">
+                        <ShieldCheck size={12} /> Privacy Policy & Terms
+                    </button>
+                 </div>
               </div>
           </div>
       </div>
   );
+
+  const renderPrivacyModal = () => {
+    if (!showPrivacy) return null;
+    return (
+        <div className="fixed inset-0 z-[100] bg-brand-dark/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in safe-top safe-bottom">
+            <div className="bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl relative border border-white/20">
+                <button 
+                  onClick={() => setShowPrivacy(false)} 
+                  className="absolute top-6 right-6 p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
+                >
+                  <X size={20} className="text-gray-600"/>
+                </button>
+                <div className="mb-6">
+                  <div className="w-12 h-12 bg-brand-green/10 rounded-2xl flex items-center justify-center text-brand-green mb-4">
+                    <ShieldCheck size={24} />
+                  </div>
+                  <h3 className="text-2xl font-black text-gray-900 tracking-tight">Privacy & Terms</h3>
+                </div>
+                <div className="space-y-4 text-sm text-gray-600 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                    <section>
+                      <h4 className="font-bold text-gray-900 mb-1">1. Service Description</h4>
+                      <p>NuTrack AI is a demonstration application that uses Artificial Intelligence to estimate nutritional information from food images.</p>
+                    </section>
+                    <section>
+                      <h4 className="font-bold text-gray-900 mb-1">2. Data Collection</h4>
+                      <p>We collect your authentication details (phone/email) solely for account management. We do not sell your personal data to third parties.</p>
+                    </section>
+                    <section>
+                      <h4 className="font-bold text-gray-900 mb-1">3. AI & Image Processing</h4>
+                      <p>Images you upload are transmitted to Google's Gemini API for analysis. By using this service, you consent to this processing. Images are processed temporarily for the purpose of analysis.</p>
+                    </section>
+                    <section>
+                      <h4 className="font-bold text-gray-900 mb-1">4. Health Disclaimer</h4>
+                      <p>Nutritional data provided is an AI-generated estimate and should not be used for medical purposes. Consult a doctor for professional health advice.</p>
+                    </section>
+                </div>
+                <div className="mt-8 pt-4 border-t border-gray-100">
+                   <button onClick={() => setShowPrivacy(false)} className="w-full py-4 bg-gray-900 text-white font-black rounded-2xl uppercase tracking-widest text-xs hover:bg-black transition-colors">
+                     I Understand
+                   </button>
+                </div>
+            </div>
+        </div>
+    )
+  };
 
   const renderAchievementCelebration = () => {
     if (!newlyEarnedBadgeId) return null;
@@ -763,6 +861,10 @@ const App: React.FC = () => {
           <p className="text-gray-500 text-lg font-medium px-4">Tell us about yourself to tailor your AI nutrition plan.</p>
         </div>
         <form onSubmit={handleOnboardingSubmit} className="space-y-6 glass-card p-6 md:p-10 rounded-[2.5rem] shadow-2xl shadow-gray-200/50">
+          <div>
+              <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Display Name</label>
+              <input name="name" type="text" required defaultValue={user?.name || ""} placeholder="Your Name" className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none transition font-bold" />
+          </div>
           <div className="grid grid-cols-2 gap-4 md:gap-6">
             <div>
               <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Age</label>
@@ -791,6 +893,14 @@ const App: React.FC = () => {
             <select name="activity" defaultValue={user?.activityLevel || ActivityLevel.MODERATE} className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold">
               {Object.values(ActivityLevel).map(level => (
                 <option key={level} value={level}>{level.split(' (')[0]}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Primary Goal</label>
+            <select name="goalType" defaultValue={user?.goals?.type || GoalType.MAINTENANCE} className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold">
+              {Object.values(GoalType).map(type => (
+                <option key={type} value={type}>{type}</option>
               ))}
             </select>
           </div>
@@ -1021,6 +1131,7 @@ const App: React.FC = () => {
         {view === 'profile' && renderProfile()}
       </main>
       {renderAchievementCelebration()}
+      {renderPrivacyModal()}
       {showCamera && <CameraModal onClose={() => setShowCamera(false)} onCapture={handleCameraCapture} />}
       {showNutritionModal && (
         <NutritionModal 
@@ -1180,8 +1291,34 @@ const HistoryView: React.FC<{ meals: Meal[], user: UserProfile | null, handleEdi
     );
 };
 
-const MealCard: React.FC<{ meal: Meal; onEdit: (meal: Meal) => void; onDelete: (id: string) => void }> = ({ meal, onEdit, onDelete }) => (
-    <div className="glass-card p-6 md:p-8 rounded-[2.5rem] shadow-xl active:scale-[0.99] transition-all duration-300">
+const MealCard: React.FC<{ meal: Meal; onEdit: (meal: Meal) => void; onDelete: (id: string) => void }> = ({ meal, onEdit, onDelete }) => {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  return (
+    <div className="glass-card p-6 md:p-8 rounded-[2.5rem] shadow-xl active:scale-[0.99] transition-all duration-300 relative overflow-hidden">
+        {showDeleteConfirm && (
+            <div className="absolute inset-0 bg-white/95 backdrop-blur-md z-10 flex flex-col items-center justify-center text-center p-4 animate-fade-in">
+                <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-3">
+                    <Trash2 size={24} />
+                </div>
+                <h4 className="font-black text-gray-900 text-lg mb-1">Delete Meal?</h4>
+                <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-6">This cannot be undone.</p>
+                <div className="flex gap-3 w-full justify-center">
+                    <button 
+                        onClick={() => setShowDeleteConfirm(false)}
+                        className="px-6 py-3 rounded-2xl bg-gray-100 text-gray-500 font-black text-[10px] uppercase tracking-widest hover:bg-gray-200 transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={() => onDelete(meal.id)}
+                        className="px-6 py-3 rounded-2xl bg-red-500 text-white font-black text-[10px] uppercase tracking-widest hover:bg-red-600 transition-colors shadow-lg shadow-red-500/30"
+                    >
+                        Delete
+                    </button>
+                </div>
+            </div>
+        )}
         <div className="flex justify-between items-start mb-6">
             <div className="flex items-center gap-4 md:gap-6">
                  {meal.imageUrl && <img src={meal.imageUrl} alt="" className="w-20 h-20 md:w-24 md:h-24 rounded-3xl object-cover shadow-lg ring-2 ring-white" />}
@@ -1192,7 +1329,7 @@ const MealCard: React.FC<{ meal: Meal; onEdit: (meal: Meal) => void; onDelete: (
             </div>
             <div className="flex gap-1">
                 <button className="p-2 text-gray-300 active:text-brand-green" onClick={() => onEdit(meal)}><Pencil size={18} /></button>
-                <button className="p-2 text-gray-300 active:text-red-500" onClick={() => onDelete(meal.id)}><X size={20} /></button>
+                <button className="p-2 text-gray-300 active:text-red-500" onClick={() => setShowDeleteConfirm(true)}><X size={20} /></button>
             </div>
         </div>
         <div className="grid grid-cols-4 gap-2 bg-white/40 p-4 rounded-3xl border border-white/50 text-center">
@@ -1202,6 +1339,7 @@ const MealCard: React.FC<{ meal: Meal; onEdit: (meal: Meal) => void; onDelete: (
             <div><span className="block text-[8px] text-gray-400 font-black uppercase tracking-widest">F</span><span className="font-black text-gray-900 text-lg">{Math.round(meal.totalFat)}g</span></div>
         </div>
     </div>
-);
+  );
+};
 
 export default App;
