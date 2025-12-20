@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Gender, 
   ActivityLevel, 
@@ -35,7 +35,8 @@ import {
   Target,
   Eye,
   Clock,
-  Sparkles
+  Sparkles,
+  CalendarDays
 } from 'lucide-react';
 import { format, isSameDay, subMonths, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth } from 'date-fns';
 
@@ -63,6 +64,7 @@ const App: React.FC = () => {
   
   // Tabs state for Dashboard
   const [activeMealTab, setActiveMealTab] = useState(0);
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
 
   // Modals state
   const [showCamera, setShowCamera] = useState(false);
@@ -74,7 +76,20 @@ const App: React.FC = () => {
   
   // Achievement Animation State
   const [newlyEarnedBadgeId, setNewlyEarnedBadgeId] = useState<string | null>(null);
-  const [sessionEarnedBadges, setSessionEarnedBadges] = useState<Set<string>>(new Set());
+
+  // Auto-scroll active tab into view
+  useEffect(() => {
+    if (tabsContainerRef.current && activeMealTab >= 0) {
+      const activeTabElement = tabsContainerRef.current.children[activeMealTab] as HTMLElement;
+      if (activeTabElement) {
+        activeTabElement.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+          inline: 'center'
+        });
+      }
+    }
+  }, [activeMealTab]);
 
   // Achievement Logic
   const checkAchievements = useCallback((currentUser: UserProfile, currentMeals: Meal[]) => {
@@ -110,7 +125,6 @@ const App: React.FC = () => {
       earned.forEach(id => {
         if (!existingBadges.has(id)) {
           setNewlyEarnedBadgeId(id);
-          setSessionEarnedBadges(prev => new Set(prev).add(id));
         }
       });
 
@@ -350,12 +364,14 @@ const App: React.FC = () => {
     setSuggestedMealName('');
   };
 
-  const AchievementCelebration = () => {
+  // --- VIEW RENDERERS (Defined to prevent remounting scroll reset) ---
+
+  const renderAchievementCelebration = () => {
     if (!newlyEarnedBadgeId) return null;
     const badge = BADGES_DATA[newlyEarnedBadgeId];
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-brand-dark/95 backdrop-blur-xl animate-fade-in px-4">
-        <div className="relative w-full max-sm text-center">
+        <div className="relative w-full max-w-sm text-center">
           <div className="relative z-10 space-y-8">
             <div className={`w-40 h-40 mx-auto rounded-[3rem] ${badge.color} text-white flex items-center justify-center shadow-2xl shadow-brand-green/20 border-4 border-white/20 animate-bounce-slow relative overflow-hidden`}>
               <div className="absolute inset-0 bg-white/10 animate-pulse"></div>
@@ -389,7 +405,7 @@ const App: React.FC = () => {
     );
   };
 
-  const OnboardingView = () => (
+  const renderOnboarding = () => (
     <div className="min-h-screen flex items-center justify-center p-4 animate-fade-in relative z-10 safe-top safe-bottom">
       <div className="w-full max-w-lg">
         <div className="text-center mb-10">
@@ -444,7 +460,7 @@ const App: React.FC = () => {
     </div>
   );
 
-  const Navbar = () => (
+  const renderNavbar = () => (
     <header className="sticky top-0 z-40 w-full bg-white/70 backdrop-blur-xl border-b border-white/40 shadow-sm safe-top">
       <div className="max-w-5xl mx-auto flex justify-between items-center py-4 px-6">
         <div className="flex items-center gap-2">
@@ -482,7 +498,7 @@ const App: React.FC = () => {
     </header>
   );
 
-  const DashboardView = () => (
+  const renderDashboard = () => (
     <div className="pb-24 safe-bottom animate-fade-in relative z-10 pt-4 px-2">
       <div className="relative mb-8">
         <div className="glass-card rounded-[3rem] p-6 md:p-10 shadow-2xl shadow-gray-200/50 border-white/60 relative z-10 overflow-hidden">
@@ -543,15 +559,18 @@ const App: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="flex gap-2 overflow-x-auto no-scrollbar py-2">
+          <div 
+            ref={tabsContainerRef} 
+            className="flex gap-2 overflow-x-auto no-scrollbar py-2 scroll-smooth"
+          >
              {todayMeals.map((meal, idx) => (
                 <button 
                   key={meal.id}
                   onClick={() => setActiveMealTab(idx)}
-                  className={`px-6 py-3 rounded-2xl font-black text-[9px] uppercase tracking-widest transition-all whitespace-nowrap border ${
+                  className={`px-6 py-3 rounded-2xl font-black text-[9px] uppercase tracking-widest transition-all whitespace-nowrap border shrink-0 ${
                     activeMealTab === idx 
-                      ? 'bg-brand-green text-white border-brand-green shadow-lg' 
-                      : 'bg-white/60 text-gray-400 border-white/50'
+                      ? 'bg-brand-green text-white border-brand-green shadow-lg scale-105 z-10' 
+                      : 'bg-white/60 text-gray-400 border-white/50 active:bg-gray-100'
                   }`}
                 >
                   {meal.name}
@@ -576,7 +595,94 @@ const App: React.FC = () => {
     </div>
   );
 
-  const MealHistoryView = () => {
+  const renderHistory = () => {
+    // History needs local state so we use a small helper hook or define state at top.
+    // Since history has its own date logic, we keep it integrated but follow the functional pattern.
+    return <HistoryView meals={meals} user={user} handleEditMeal={handleEditMeal} setMeals={setMeals} />
+  };
+
+  const renderProfile = () => (
+      <div className="pb-24 safe-bottom animate-fade-in relative z-10 pt-4 px-2">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-1 space-y-6">
+                <div className="glass-card rounded-[3rem] p-10 shadow-2xl text-center relative overflow-hidden">
+                    <div className="inline-flex items-center justify-center w-24 h-24 bg-brand-green/10 text-brand-green rounded-[2.5rem] mb-6">
+                        <User size={48} />
+                    </div>
+                    <h2 className="text-3xl font-black text-gray-900 mb-8 tracking-tight">Your Profile</h2>
+                    <div className="space-y-3">
+                        <div className="flex justify-between p-4 bg-white/50 rounded-2xl border border-white">
+                            <span className="text-[10px] font-black text-gray-400 uppercase">Goal</span>
+                            <span className="font-black text-gray-900">{user?.goals.calories} kcal</span>
+                        </div>
+                        <div className="flex justify-between p-4 bg-brand-green text-white rounded-2xl shadow-lg shadow-brand-green/20">
+                            <span className="text-[10px] font-black uppercase">Streak</span>
+                            <span className="font-black">{user?.streak} Days</span>
+                        </div>
+                    </div>
+                    <button onClick={() => setView('onboarding')} className="w-full mt-8 py-4 bg-gray-100/50 hover:bg-gray-100 active:scale-95 text-gray-900 rounded-2xl font-black text-[11px] uppercase tracking-widest transition flex items-center justify-center gap-2">
+                        <Settings size={16} /> Edit Profile
+                    </button>
+                </div>
+            </div>
+            <div className="lg:col-span-2">
+                <div className="glass-card rounded-[3rem] p-6 md:p-10 shadow-2xl min-h-full">
+                    <div className="flex justify-between items-center mb-10">
+                        <h2 className="text-3xl font-black text-gray-900 tracking-tight flex items-center gap-4">
+                            <Trophy className="text-yellow-500" size={32} /> Badges
+                        </h2>
+                        <div className="bg-brand-green/10 text-brand-green px-4 py-2 rounded-2xl font-black text-[10px]">
+                            {user?.earnedBadges?.length || 0} EARNED
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {Object.entries(BADGES_DATA).map(([id, data]) => {
+                            const isEarned = user?.earnedBadges?.includes(id);
+                            return (
+                                <div key={id} className={`p-5 rounded-[2.5rem] border-2 transition-all flex items-center gap-4 ${isEarned ? `border-brand-green bg-white shadow-xl` : 'border-dashed border-gray-200 opacity-50 grayscale'}`}>
+                                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-md ${isEarned ? data.color : 'bg-gray-100 text-gray-400'}`}>
+                                        {React.cloneElement(data.icon as React.ReactElement<{ size?: number }>, { size: 28 })}
+                                    </div>
+                                    <div className="flex-1">
+                                        <h4 className={`font-black text-lg tracking-tight ${isEarned ? 'text-gray-900' : 'text-gray-400'}`}>{data.name}</h4>
+                                        <p className="text-[10px] text-gray-500 font-medium">{data.description}</p>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+          </div>
+      </div>
+  );
+
+  return (
+    <div className="no-scrollbar min-h-screen">
+      {view !== 'onboarding' && renderNavbar()}
+      <main className="max-w-5xl mx-auto px-2">
+        {view === 'onboarding' && renderOnboarding()}
+        {view === 'dashboard' && renderDashboard()}
+        {view === 'history' && renderHistory()}
+        {view === 'profile' && renderProfile()}
+      </main>
+      {renderAchievementCelebration()}
+      {showCamera && <CameraModal onClose={() => setShowCamera(false)} onCapture={handleCameraCapture} />}
+      {showNutritionModal && (
+        <NutritionModal 
+            initialTitle={suggestedMealName}
+            items={currentAnalysis}
+            onCancel={() => { setShowNutritionModal(false); setPendingImages([]); setEditingMealId(null); setSuggestedMealName(''); }}
+            onSave={saveMeal}
+        />
+      )}
+    </div>
+  );
+};
+
+// --- HELPER COMPONENTS ---
+
+const HistoryView: React.FC<{ meals: Meal[], user: UserProfile | null, handleEditMeal: (meal: Meal) => void, setMeals: React.Dispatch<React.SetStateAction<Meal[]>> }> = ({ meals, user, handleEditMeal, setMeals }) => {
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [selectedDate, setSelectedDate] = useState(new Date());
     
@@ -584,6 +690,12 @@ const App: React.FC = () => {
       start: startOfWeek(startOfMonth(currentMonth)), 
       end: endOfWeek(endOfMonth(currentMonth)) 
     });
+
+    const jumpToToday = () => {
+        const today = new Date();
+        setCurrentMonth(today);
+        setSelectedDate(today);
+    };
 
     const getDayStatus = (day: Date) => {
         const dayStr = format(day, 'yyyy-MM-dd');
@@ -606,7 +718,7 @@ const App: React.FC = () => {
             fat: acc.fat + meal.totalFat,
         }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
     }, [mealsForSelectedDate]);
-    
+
     return (
         <div className="pb-24 safe-bottom animate-fade-in relative z-10 pt-4 px-2">
              <div className="glass-card rounded-[3rem] p-6 md:p-10 shadow-2xl mb-8">
@@ -614,10 +726,18 @@ const App: React.FC = () => {
                      <h2 className="text-2xl md:text-3xl font-black flex items-center gap-3">
                         <CalendarIcon size={28} className="text-brand-green" /> History
                      </h2>
-                     <div className="flex items-center gap-2 bg-white/50 rounded-2xl p-1 border border-white">
-                        <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 active:bg-white rounded-xl transition"><ChevronLeft size={18}/></button>
-                        <span className="font-black w-32 text-center text-[10px] uppercase tracking-widest">{format(currentMonth, 'MMM yyyy')}</span>
-                        <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 active:bg-white rounded-xl transition"><ChevronRight size={18}/></button>
+                     <div className="flex items-center gap-2">
+                         <button 
+                            onClick={jumpToToday}
+                            className="flex items-center gap-1.5 px-4 py-2.5 bg-brand-green/10 text-brand-green rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-green/20 transition-all active:scale-95"
+                         >
+                            <CalendarDays size={14} /> Today
+                         </button>
+                         <div className="flex items-center gap-2 bg-white/50 rounded-2xl p-1 border border-white">
+                            <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 active:bg-white rounded-xl transition"><ChevronLeft size={18}/></button>
+                            <span className="font-black w-32 text-center text-[10px] uppercase tracking-widest">{format(currentMonth, 'MMM yyyy')}</span>
+                            <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 active:bg-white rounded-xl transition"><ChevronRight size={18}/></button>
+                         </div>
                      </div>
                  </div>
                  <div className="grid grid-cols-7 gap-2 md:gap-4">
@@ -701,85 +821,6 @@ const App: React.FC = () => {
              </div>
         </div>
     );
-  };
-
-  const ProfileView = () => (
-      <div className="pb-24 safe-bottom animate-fade-in relative z-10 pt-4 px-2">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-1 space-y-6">
-                <div className="glass-card rounded-[3rem] p-10 shadow-2xl text-center relative overflow-hidden">
-                    <div className="inline-flex items-center justify-center w-24 h-24 bg-brand-green/10 text-brand-green rounded-[2.5rem] mb-6">
-                        <User size={48} />
-                    </div>
-                    <h2 className="text-3xl font-black text-gray-900 mb-8 tracking-tight">Your Profile</h2>
-                    <div className="space-y-3">
-                        <div className="flex justify-between p-4 bg-white/50 rounded-2xl border border-white">
-                            <span className="text-[10px] font-black text-gray-400 uppercase">Goal</span>
-                            <span className="font-black text-gray-900">{user?.goals.calories} kcal</span>
-                        </div>
-                        <div className="flex justify-between p-4 bg-brand-green text-white rounded-2xl shadow-lg shadow-brand-green/20">
-                            <span className="text-[10px] font-black uppercase">Streak</span>
-                            <span className="font-black">{user?.streak} Days</span>
-                        </div>
-                    </div>
-                    <button onClick={() => setView('onboarding')} className="w-full mt-8 py-4 bg-gray-100/50 hover:bg-gray-100 active:scale-95 text-gray-900 rounded-2xl font-black text-[11px] uppercase tracking-widest transition flex items-center justify-center gap-2">
-                        <Settings size={16} /> Edit Profile
-                    </button>
-                </div>
-            </div>
-            <div className="lg:col-span-2">
-                <div className="glass-card rounded-[3rem] p-6 md:p-10 shadow-2xl min-h-full">
-                    <div className="flex justify-between items-center mb-10">
-                        <h2 className="text-3xl font-black text-gray-900 tracking-tight flex items-center gap-4">
-                            <Trophy className="text-yellow-500" size={32} /> Badges
-                        </h2>
-                        <div className="bg-brand-green/10 text-brand-green px-4 py-2 rounded-2xl font-black text-[10px]">
-                            {user?.earnedBadges?.length || 0} EARNED
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {Object.entries(BADGES_DATA).map(([id, data]) => {
-                            const isEarned = user?.earnedBadges?.includes(id);
-                            return (
-                                <div key={id} className={`p-5 rounded-[2.5rem] border-2 transition-all flex items-center gap-4 ${isEarned ? `border-brand-green bg-white shadow-xl` : 'border-dashed border-gray-200 opacity-50 grayscale'}`}>
-                                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-md ${isEarned ? data.color : 'bg-gray-100 text-gray-400'}`}>
-                                        {React.cloneElement(data.icon as React.ReactElement<{ size?: number }>, { size: 28 })}
-                                    </div>
-                                    <div className="flex-1">
-                                        <h4 className={`font-black text-lg tracking-tight ${isEarned ? 'text-gray-900' : 'text-gray-400'}`}>{data.name}</h4>
-                                        <p className="text-[10px] text-gray-500 font-medium">{data.description}</p>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            </div>
-          </div>
-      </div>
-  );
-
-  return (
-    <div className="no-scrollbar min-h-screen">
-      {view !== 'onboarding' && <Navbar />}
-      <main className="max-w-5xl mx-auto px-2">
-        {view === 'onboarding' && <OnboardingView />}
-        {view === 'dashboard' && <DashboardView />}
-        {view === 'history' && <MealHistoryView />}
-        {view === 'profile' && <ProfileView />}
-      </main>
-      <AchievementCelebration />
-      {showCamera && <CameraModal onClose={() => setShowCamera(false)} onCapture={handleCameraCapture} />}
-      {showNutritionModal && (
-        <NutritionModal 
-            initialTitle={suggestedMealName}
-            items={currentAnalysis}
-            onCancel={() => { setShowNutritionModal(false); setPendingImages([]); setEditingMealId(null); setSuggestedMealName(''); }}
-            onSave={saveMeal}
-        />
-      )}
-    </div>
-  );
 };
 
 const MealCard: React.FC<{ meal: Meal; onEdit: (meal: Meal) => void; onDelete: (id: string) => void }> = ({ meal, onEdit, onDelete }) => (
