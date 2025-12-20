@@ -43,7 +43,8 @@ import {
   LogOut,
   AlertTriangle,
   ShieldCheck,
-  Trash2
+  Trash2,
+  UserCircle
 } from 'lucide-react';
 import { format, isSameDay, subMonths, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth } from 'date-fns';
 
@@ -219,6 +220,19 @@ const App: React.FC = () => {
     setAuthLoading(false);
   };
 
+  const handleGuestLogin = async () => {
+    if (!isSupabaseConfigured) {
+      alert("Application is not configured.");
+      return;
+    }
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signInAnonymously();
+    if (error) {
+      alert("Error signing in as guest: " + error.message);
+    }
+    setAuthLoading(false);
+  };
+
   const handlePhoneLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isSupabaseConfigured) {
@@ -318,8 +332,8 @@ const App: React.FC = () => {
       // Optimistic Update
       setUser(prev => prev ? { ...prev, earnedBadges: newBadges } : null);
 
-      // DB Update
       if (session?.user?.id) {
+          // DB Update
           await supabase.from('profiles').update({
               earned_badges: newBadges
           }).eq('id', session.user.id);
@@ -677,9 +691,7 @@ const App: React.FC = () => {
   };
 
   // --- VIEW RENDERERS ---
-  
-  // ... (rest of the file remains unchanged)
-  
+
   const renderAuth = () => (
       <div className="min-h-screen flex items-center justify-center p-4 relative z-10 safe-top safe-bottom">
           <div className="w-full max-w-md">
@@ -715,6 +727,16 @@ const App: React.FC = () => {
                             Continue with Google
                         </button>
                         
+                        <button 
+                            onClick={handleGuestLogin}
+                            disabled={authLoading}
+                            className="w-full py-4 bg-gray-50 hover:bg-gray-100 text-gray-600 font-bold rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] border border-gray-200"
+                        >
+                            <UserCircle size={20} className="text-gray-400" />
+                            Continue as Guest
+                        </button>
+
+                        {/* 
                         <div className="relative py-2">
                              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
                              <div className="relative flex justify-center text-[10px] uppercase font-black"><span className="bg-white px-2 text-gray-400">Or with Phone</span></div>
@@ -744,6 +766,7 @@ const App: React.FC = () => {
                             </button>
                             <p className="text-[10px] text-center text-gray-400 font-medium">Code sent via SMS or WhatsApp if configured.</p>
                         </form>
+                        */}
                      </>
                  ) : (
                      <form onSubmit={handleVerifyOtp} className="space-y-6">
@@ -1163,201 +1186,171 @@ const App: React.FC = () => {
   );
 };
 
-// --- HELPER COMPONENTS ---
+interface MealCardProps {
+  meal: Meal;
+  onEdit: (meal: Meal) => void;
+  onDelete: (id: string) => Promise<void>;
+}
 
-const HistoryView: React.FC<{ meals: Meal[], user: UserProfile | null, handleEditMeal: (meal: Meal) => void, setMeals: React.Dispatch<React.SetStateAction<Meal[]>> }> = ({ meals, user, handleEditMeal, setMeals }) => {
-    const [currentMonth, setCurrentMonth] = useState(new Date());
-    const [selectedDate, setSelectedDate] = useState(new Date());
-    
-    const daysInMonth = eachDayOfInterval({ 
-      start: startOfWeek(startOfMonth(currentMonth)), 
-      end: endOfWeek(endOfMonth(currentMonth)) 
-    });
+const MealCard: React.FC<MealCardProps> = ({ meal, onEdit, onDelete }) => {
+  return (
+    <div className="bg-white/80 backdrop-blur-xl border border-white/60 p-6 rounded-[2.5rem] shadow-sm relative group overflow-hidden hover:shadow-lg transition-all duration-300">
+      <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 translate-x-4 group-hover:translate-x-0 duration-300">
+        <button 
+            onClick={(e) => { e.stopPropagation(); onEdit(meal); }} 
+            className="p-3 bg-white text-gray-600 rounded-full hover:bg-brand-green hover:text-white transition-colors shadow-md border border-gray-100"
+        >
+            <Pencil size={16} />
+        </button>
+        <button 
+            onClick={async (e) => { 
+                e.stopPropagation(); 
+                if (window.confirm('Delete this meal?')) await onDelete(meal.id); 
+            }} 
+            className="p-3 bg-white text-rose-500 rounded-full hover:bg-rose-500 hover:text-white transition-colors shadow-md border border-gray-100"
+        >
+            <Trash2 size={16} />
+        </button>
+      </div>
+      
+      <div className="flex flex-col md:flex-row gap-6 items-center">
+        <div className="relative shrink-0">
+            {meal.imageUrl ? (
+            <img src={meal.imageUrl} alt={meal.name} className="w-24 h-24 rounded-2xl object-cover shadow-lg shadow-gray-200" />
+            ) : (
+            <div className="w-24 h-24 rounded-2xl bg-brand-green/5 border border-brand-green/10 flex items-center justify-center text-brand-green">
+                <Camera size={28} className="opacity-50" />
+            </div>
+            )}
+        </div>
+        
+        <div className="flex-1 text-center md:text-left min-w-0 w-full">
+           <div className="flex items-center justify-center md:justify-between mb-1">
+             <h3 className="text-xl font-black text-gray-900 truncate pr-2">{meal.name}</h3>
+             <span className="hidden md:block text-[9px] font-bold text-gray-400 uppercase tracking-widest bg-gray-50 px-2 py-1 rounded-lg border border-gray-100">{format(new Date(meal.timestamp), 'h:mm a')}</span>
+           </div>
+           
+           <div className="md:hidden text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-4">{format(new Date(meal.timestamp), 'h:mm a')}</div>
+           
+           <div className="grid grid-cols-4 gap-2 md:gap-4 mt-2">
+             <div className="text-center p-2 rounded-2xl bg-emerald-50/50 border border-emerald-100/50">
+                <span className="block text-lg font-black text-emerald-700 leading-none mb-1">{Math.round(meal.totalCalories)}</span>
+                <span className="text-[7px] font-black text-emerald-400 uppercase tracking-widest">Kcal</span>
+             </div>
+             <div className="text-center p-2 rounded-2xl bg-blue-50/50 border border-blue-100/50">
+                <span className="block text-lg font-black text-blue-700 leading-none mb-1">{Math.round(meal.totalProtein)}</span>
+                <span className="text-[7px] font-black text-blue-400 uppercase tracking-widest">Prot</span>
+             </div>
+             <div className="text-center p-2 rounded-2xl bg-amber-50/50 border border-amber-100/50">
+                <span className="block text-lg font-black text-amber-700 leading-none mb-1">{Math.round(meal.totalCarbs)}</span>
+                <span className="text-[7px] font-black text-amber-400 uppercase tracking-widest">Carbs</span>
+             </div>
+             <div className="text-center p-2 rounded-2xl bg-rose-50/50 border border-rose-100/50">
+                <span className="block text-lg font-black text-rose-700 leading-none mb-1">{Math.round(meal.totalFat)}</span>
+                <span className="text-[7px] font-black text-rose-400 uppercase tracking-widest">Fat</span>
+             </div>
+           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
-    const jumpToToday = () => {
-        const today = new Date();
-        setCurrentMonth(today);
-        setSelectedDate(today);
-    };
+interface HistoryViewProps {
+    meals: Meal[];
+    user: UserProfile | null;
+    handleEditMeal: (meal: Meal) => void;
+    setMeals: React.Dispatch<React.SetStateAction<Meal[]>>;
+}
 
-    const getDayStatus = (day: Date) => {
-        const dayStr = format(day, 'yyyy-MM-dd');
-        const dayMeals = meals.filter(m => m.date === dayStr);
-        if (dayMeals.length === 0) return 'empty';
-        const dayCals = dayMeals.reduce((acc, m) => acc + m.totalCalories, 0);
-        return dayCals >= (user?.goals.calories || 2000) ? 'met' : 'partial';
-    };
+const HistoryView: React.FC<HistoryViewProps> = ({ meals, user, handleEditMeal, setMeals }) => {
+    const groupedMeals = useMemo(() => {
+        const groups: Record<string, Meal[]> = {};
+        meals.forEach(meal => {
+            if (!groups[meal.date]) groups[meal.date] = [];
+            groups[meal.date].push(meal);
+        });
+        return groups;
+    }, [meals]);
 
-    const mealsForSelectedDate = useMemo(() => {
-        const selectedStr = format(selectedDate, 'yyyy-MM-dd');
-        return meals.filter(m => m.date === selectedStr).sort((a, b) => b.timestamp - a.timestamp);
-    }, [meals, selectedDate]);
-
-    const dailyHistoryTotals = useMemo(() => {
-        return mealsForSelectedDate.reduce((acc, meal) => ({
-            calories: acc.calories + meal.totalCalories,
-            protein: acc.protein + meal.totalProtein,
-            carbs: acc.carbs + meal.totalCarbs,
-            fat: acc.fat + meal.totalFat,
-        }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
-    }, [mealsForSelectedDate]);
+    const sortedDates = Object.keys(groupedMeals).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
 
     return (
         <div className="pb-24 safe-bottom animate-fade-in relative z-10 pt-4 px-2">
-             <div className="glass-card rounded-[3rem] p-6 md:p-10 shadow-2xl mb-8">
-                 <div className="flex flex-col md:flex-row justify-between items-center mb-10 gap-6">
-                     <h2 className="text-2xl md:text-3xl font-black flex items-center gap-3">
-                        <CalendarIcon size={28} className="text-brand-green" /> History
-                     </h2>
-                     <div className="flex items-center gap-2">
-                         <button 
-                            onClick={jumpToToday}
-                            className="flex items-center gap-1.5 px-4 py-2.5 bg-brand-green/10 text-brand-green rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-green/20 transition-all active:scale-95"
-                         >
-                            <CalendarDays size={14} /> Today
-                         </button>
-                         <div className="flex items-center gap-2 bg-white/50 rounded-2xl p-1 border border-white">
-                            <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 active:bg-white rounded-xl transition"><ChevronLeft size={18}/></button>
-                            <span className="font-black w-32 text-center text-[10px] uppercase tracking-widest">{format(currentMonth, 'MMM yyyy')}</span>
-                            <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 active:bg-white rounded-xl transition"><ChevronRight size={18}/></button>
-                         </div>
-                     </div>
-                 </div>
-                 <div className="grid grid-cols-7 gap-2 md:gap-4">
-                     {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => (
-                       <div key={d} className="text-center text-[9px] font-black text-gray-400 uppercase tracking-widest">{d}</div>
-                     ))}
-                     {daysInMonth.map((day, i) => {
-                         const status = getDayStatus(day);
-                         const isSelectedMonth = isSameMonth(day, currentMonth);
-                         const isSelected = isSameDay(day, selectedDate);
-                         const isToday = isSameDay(day, new Date());
-                         
-                         let bgClass = "bg-white/30 active:bg-white/60 border border-white/40";
-                         let textClass = isSelectedMonth ? "text-gray-900 font-bold" : "text-gray-200";
-                         
-                         if (status === 'met') { bgClass = "bg-brand-green text-white"; textClass = "text-white"; }
-                         else if (status === 'partial') { bgClass = "bg-orange-100 border-orange-200"; textClass = "text-orange-700"; }
-                         
-                         return (
-                             <button 
-                                key={i} 
-                                onClick={() => setSelectedDate(day)}
-                                className={`aspect-square w-full rounded-xl flex items-center justify-center text-sm transition-all relative
-                                    ${bgClass} ${textClass}
-                                    ${isSelected ? 'ring-2 ring-brand-green ring-offset-2 scale-110 z-10' : ''}
-                                `}
-                             >
-                                 {format(day, 'd')}
-                                 {isToday && !isSelected && <div className="absolute bottom-1 w-1 h-1 bg-brand-green rounded-full"></div>}
-                             </button>
-                         )
-                     })}
-                 </div>
-             </div>
-
-             <div className="space-y-6">
-                <div className="flex justify-between items-center px-4">
-                  <h3 className="text-xl font-black text-gray-900">
-                      {format(selectedDate, 'MMM do')} Log
-                  </h3>
+            <div className="mb-8 flex items-center justify-between">
+                <div>
+                  <h2 className="text-3xl font-black text-gray-900 tracking-tight">History</h2>
+                  <p className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Your Logged Meals</p>
                 </div>
+                <div className="bg-gray-100 text-gray-500 px-4 py-2 rounded-2xl font-black text-[10px]">
+                    {meals.length} ENTRIES
+                </div>
+            </div>
 
-                {mealsForSelectedDate.length > 0 && (
-                  <div className="glass-card rounded-[2rem] p-6 mx-2 border-brand-green/20 border flex flex-col gap-4 animate-fade-in shadow-sm">
-                    <div className="flex items-center gap-2 mb-2">
-                       <Zap size={16} className="text-brand-green" />
-                       <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Daily Nutrition Summary</span>
+            {sortedDates.length === 0 ? (
+                <div className="glass-card rounded-[3rem] p-16 text-center border-dashed border-2 border-gray-200 bg-white/50">
+                    <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6 text-gray-400">
+                      <History size={32} />
                     </div>
-                    <div className="grid grid-cols-4 gap-2 text-center">
-                      <div className="p-2 rounded-2xl bg-brand-green/5 border border-brand-green/10">
-                         <span className="block text-[8px] font-black text-brand-green uppercase mb-1">Calories</span>
-                         <span className="font-black text-lg text-brand-green">{Math.round(dailyHistoryTotals.calories)}</span>
-                      </div>
-                      <div className="p-2 rounded-2xl bg-blue-50/50 border border-blue-100/50">
-                         <span className="block text-[8px] font-black text-blue-600 uppercase mb-1">Protein</span>
-                         <span className="font-black text-lg text-blue-700">{Math.round(dailyHistoryTotals.protein)}g</span>
-                      </div>
-                      <div className="p-2 rounded-2xl bg-amber-50/50 border border-amber-100/50">
-                         <span className="block text-[8px] font-black text-amber-600 uppercase mb-1">Carbs</span>
-                         <span className="font-black text-lg text-amber-700">{Math.round(dailyHistoryTotals.carbs)}g</span>
-                      </div>
-                      <div className="p-2 rounded-2xl bg-rose-50/50 border border-rose-100/50">
-                         <span className="block text-[8px] font-black text-rose-600 uppercase mb-1">Fat</span>
-                         <span className="font-black text-lg text-rose-700">{Math.round(dailyHistoryTotals.fat)}g</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                    <h3 className="text-gray-900 font-bold text-lg mb-2">No meals logged yet</h3>
+                    <p className="text-gray-400 text-sm">Start tracking your nutrition by logging your first meal on the dashboard.</p>
+                </div>
+            ) : (
+                <div className="space-y-10 relative">
+                    {/* Vertical Line */}
+                    <div className="absolute left-4 top-4 bottom-4 w-0.5 bg-gray-100 z-0 hidden md:block"></div>
+                    
+                    {sortedDates.map(date => {
+                        const dayMeals = groupedMeals[date];
+                        const dayTotal = dayMeals.reduce((acc, m) => acc + m.totalCalories, 0);
+                        const goal = user?.goals.calories || 2000;
+                        const percentage = Math.min(100, Math.round((dayTotal / goal) * 100));
+                        let colorClass = 'bg-brand-green';
+                        if (percentage > 110) colorClass = 'bg-rose-500';
+                        else if (percentage < 50) colorClass = 'bg-yellow-500';
 
-                {mealsForSelectedDate.length === 0 ? (
-                    <div className="glass-card rounded-[3rem] p-12 text-center border-white/60">
-                        <p className="text-gray-400 font-bold italic">No logs.</p>
-                    </div>
-                ) : (
-                    <div className="grid gap-4">
-                        {mealsForSelectedDate.map((meal) => (
-                            <MealCard key={meal.id} meal={meal} onEdit={handleEditMeal} onDelete={async (id) => {
-                                const { error } = await supabase.from('meals').delete().eq('id', id);
-                                if (!error) setMeals(prev => prev.filter(m => m.id !== id));
-                            }} />
-                        ))}
-                    </div>
-                )}
-             </div>
+                        return (
+                            <div key={date} className="relative z-10">
+                                <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 gap-2 bg-white/80 backdrop-blur-md p-4 rounded-3xl border border-white sticky top-20 shadow-sm z-20">
+                                    <div className="flex items-center gap-4">
+                                        <div className={`hidden md:flex flex-col items-center justify-center w-16 h-16 rounded-2xl ${colorClass} text-white shadow-lg`}>
+                                            <span className="text-2xl font-black leading-none">{format(new Date(date), 'dd')}</span>
+                                            <span className="text-[8px] font-black uppercase tracking-widest">{format(new Date(date), 'MMM')}</span>
+                                        </div>
+                                        <div>
+                                            <h3 className="text-xl font-black text-gray-900 tracking-tight">{format(new Date(date), 'EEEE, MMMM do')}</h3>
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <div className="h-2 w-32 bg-gray-100 rounded-full overflow-hidden">
+                                                    <div className={`h-full ${colorClass}`} style={{ width: `${percentage}%` }}></div>
+                                                </div>
+                                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{dayTotal} / {goal} kcal</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div className="space-y-4 md:pl-8">
+                                    {dayMeals.map(meal => (
+                                        <MealCard
+                                            key={meal.id}
+                                            meal={meal}
+                                            onEdit={handleEditMeal}
+                                            onDelete={async (id) => {
+                                                const { error } = await supabase.from('meals').delete().eq('id', id);
+                                                if (!error) {
+                                                    setMeals(prev => prev.filter(m => m.id !== id));
+                                                }
+                                            }}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        )
+                    })}
+                </div>
+            )}
         </div>
     );
-};
-
-const MealCard: React.FC<{ meal: Meal; onEdit: (meal: Meal) => void; onDelete: (id: string) => void }> = ({ meal, onEdit, onDelete }) => {
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-
-  return (
-    <div className="glass-card p-6 md:p-8 rounded-[2.5rem] shadow-xl active:scale-[0.99] transition-all duration-300 relative overflow-hidden">
-        {showDeleteConfirm && (
-            <div className="absolute inset-0 bg-white/95 backdrop-blur-md z-10 flex flex-col items-center justify-center text-center p-4 animate-fade-in">
-                <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-3">
-                    <Trash2 size={24} />
-                </div>
-                <h4 className="font-black text-gray-900 text-lg mb-1">Delete Meal?</h4>
-                <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-6">This cannot be undone.</p>
-                <div className="flex gap-3 w-full justify-center">
-                    <button 
-                        onClick={() => setShowDeleteConfirm(false)}
-                        className="px-6 py-3 rounded-2xl bg-gray-100 text-gray-500 font-black text-[10px] uppercase tracking-widest hover:bg-gray-200 transition-colors"
-                    >
-                        Cancel
-                    </button>
-                    <button 
-                        onClick={() => onDelete(meal.id)}
-                        className="px-6 py-3 rounded-2xl bg-red-500 text-white font-black text-[10px] uppercase tracking-widest hover:bg-red-600 transition-colors shadow-lg shadow-red-500/30"
-                    >
-                        Delete
-                    </button>
-                </div>
-            </div>
-        )}
-        <div className="flex justify-between items-start mb-6">
-            <div className="flex items-center gap-4 md:gap-6">
-                 {meal.imageUrl && <img src={meal.imageUrl} alt="" className="w-20 h-20 md:w-24 md:h-24 rounded-3xl object-cover shadow-lg ring-2 ring-white" />}
-                 <div>
-                     <h4 className="font-black text-gray-900 text-xl md:text-2xl tracking-tight mb-1 truncate max-w-[120px] md:max-w-md">{meal.name}</h4>
-                     <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest flex items-center gap-2"><Clock size={12}/> {format(meal.timestamp, 'h:mm a')}</p>
-                 </div>
-            </div>
-            <div className="flex gap-1">
-                <button className="p-2 text-gray-300 active:text-brand-green" onClick={() => onEdit(meal)}><Pencil size={18} /></button>
-                <button className="p-2 text-gray-300 active:text-red-500" onClick={() => setShowDeleteConfirm(true)}><X size={20} /></button>
-            </div>
-        </div>
-        <div className="grid grid-cols-4 gap-2 bg-white/40 p-4 rounded-3xl border border-white/50 text-center">
-            <div><span className="block text-[8px] text-gray-400 font-black uppercase tracking-widest">Kcal</span><span className="font-black text-brand-green text-lg">{Math.round(meal.totalCalories)}</span></div>
-            <div><span className="block text-[8px] text-gray-400 font-black uppercase tracking-widest">P</span><span className="font-black text-gray-900 text-lg">{Math.round(meal.totalProtein)}g</span></div>
-            <div><span className="block text-[8px] text-gray-400 font-black uppercase tracking-widest">C</span><span className="font-black text-gray-900 text-lg">{Math.round(meal.totalCarbs)}g</span></div>
-            <div><span className="block text-[8px] text-gray-400 font-black uppercase tracking-widest">F</span><span className="font-black text-gray-900 text-lg">{Math.round(meal.totalFat)}g</span></div>
-        </div>
-    </div>
-  );
 };
 
 export default App;
