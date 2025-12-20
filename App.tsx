@@ -71,6 +71,7 @@ const App: React.FC = () => {
   const [showMenu, setShowMenu] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   
   // Tabs state for Dashboard
   const [activeMealTab, setActiveMealTab] = useState(0);
@@ -292,7 +293,7 @@ const App: React.FC = () => {
   // Achievement Logic
   const checkAchievements = useCallback(async (currentUser: UserProfile, currentMeals: Meal[]) => {
     const existingBadges = new Set(currentUser.earnedBadges || []);
-    const earned = new Set(currentUser.earnedBadges || []);
+    const earned = new Set<string>(currentUser.earnedBadges || []);
     
     if (currentMeals.length >= 1) earned.add('starter');
     if (currentMeals.length >= 50) earned.add('meal_50');
@@ -458,6 +459,7 @@ const App: React.FC = () => {
     e.preventDefault();
     if (!session?.user?.id) return;
 
+    setIsSaving(true);
     const formData = new FormData(e.currentTarget);
     const nameInput = formData.get('name') as string;
     const age = Number(formData.get('age'));
@@ -467,10 +469,10 @@ const App: React.FC = () => {
     const activity = formData.get('activity') as ActivityLevel;
     const goalType = formData.get('goalType') as GoalType;
 
-    if (!nameInput || nameInput.trim().length === 0) return alert("Please enter your display name.");
-    if (isNaN(age) || age <= 0 || age > 120) return alert("Please enter a valid age between 1 and 120 years.");
-    if (isNaN(weight) || weight <= 10 || weight > 600) return alert("Please enter a valid weight between 10kg and 600kg.");
-    if (isNaN(height) || height <= 50 || height > 280) return alert("Please enter a valid height between 50cm and 280cm.");
+    if (!nameInput || nameInput.trim().length === 0) { setIsSaving(false); return alert("Please enter your display name."); }
+    if (isNaN(age) || age <= 0 || age > 120) { setIsSaving(false); return alert("Please enter a valid age between 1 and 120 years."); }
+    if (isNaN(weight) || weight <= 10 || weight > 600) { setIsSaving(false); return alert("Please enter a valid weight between 10kg and 600kg."); }
+    if (isNaN(height) || height <= 50 || height > 280) { setIsSaving(false); return alert("Please enter a valid height between 50cm and 280cm."); }
 
     const goals = calculateGoals(age, gender, weight, height, activity, goalType);
     const now = Date.now();
@@ -493,26 +495,29 @@ const App: React.FC = () => {
       total_meals_logged: user?.totalMealsLogged || 0
     };
 
-    const { error } = await supabase.from('profiles').upsert(profileData);
-    if (error) {
+    try {
+        const { error } = await supabase.from('profiles').upsert(profileData);
+        if (error) throw error;
+
+        const newUser: UserProfile = {
+            name: profileData.name,
+            age, weight, height, gender, activityLevel: activity,
+            goals,
+            streak: profileData.streak,
+            lastLoginDate: profileData.last_login_date,
+            lastLoginTimestamp: profileData.last_login_timestamp,
+            lastMealTimestamp: profileData.last_meal_timestamp,
+            earnedBadges: profileData.earned_badges,
+            totalMealsLogged: profileData.total_meals_logged
+        };
+
+        setUser(newUser);
+        setView('dashboard');
+    } catch (error: any) {
         alert("Error saving profile: " + error.message);
-        return;
+    } finally {
+        setIsSaving(false);
     }
-
-    const newUser: UserProfile = {
-      name: profileData.name,
-      age, weight, height, gender, activityLevel: activity,
-      goals,
-      streak: profileData.streak,
-      lastLoginDate: profileData.last_login_date,
-      lastLoginTimestamp: profileData.last_login_timestamp,
-      lastMealTimestamp: profileData.last_meal_timestamp,
-      earnedBadges: profileData.earned_badges,
-      totalMealsLogged: profileData.total_meals_logged
-    };
-
-    setUser(newUser);
-    setView('dashboard');
   };
 
   const todayMeals = useMemo(() => {
@@ -595,99 +600,107 @@ const App: React.FC = () => {
   const saveMeal = async (finalItems: FoodItem[], finalTitle: string) => {
     if (!session?.user?.id) return;
     
-    const mealTotals = finalItems.reduce((acc, item) => ({
-      calories: acc.calories + (Number(item.calories) || 0),
-      protein: acc.protein + (Number(item.protein) || 0),
-      carbs: acc.carbs + (Number(item.carbs) || 0),
-      fat: acc.fat + (Number(item.fat) || 0),
-    }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+    setIsSaving(true);
+    try {
+        const mealTotals = finalItems.reduce((acc, item) => ({
+        calories: acc.calories + (Number(item.calories) || 0),
+        protein: acc.protein + (Number(item.protein) || 0),
+        carbs: acc.carbs + (Number(item.carbs) || 0),
+        fat: acc.fat + (Number(item.fat) || 0),
+        }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
-    const mealName = finalTitle || (finalItems.length > 0 ? finalItems[0].name : 'Meal');
-    let imageUrl = editingMealId ? meals.find(m => m.id === editingMealId)?.imageUrl : undefined;
+        const mealName = finalTitle || (finalItems.length > 0 ? finalItems[0].name : 'Meal');
+        let imageUrl = editingMealId ? meals.find(m => m.id === editingMealId)?.imageUrl : undefined;
 
-    // Handle Image Upload if new image
-    if (pendingImages.length > 0) {
-        const uploadedUrl = await uploadMealImage(pendingImages[0], session.user.id);
-        if (uploadedUrl) imageUrl = uploadedUrl;
+        // Handle Image Upload if new image
+        if (pendingImages.length > 0) {
+            const uploadedUrl = await uploadMealImage(pendingImages[0], session.user.id);
+            if (uploadedUrl) imageUrl = uploadedUrl;
+        }
+
+        let updatedMealsList = [...meals];
+
+        if (editingMealId) {
+        // Update DB
+        const { error } = await supabase.from('meals').update({
+            name: mealName,
+            items: finalItems,
+            total_calories: mealTotals.calories,
+            total_protein: mealTotals.protein,
+            total_carbs: mealTotals.carbs,
+            total_fat: mealTotals.fat,
+            image_url: imageUrl
+        }).eq('id', editingMealId);
+
+        if (error) { throw new Error("Failed to update meal"); }
+
+        // Update State
+        updatedMealsList = meals.map(m => m.id === editingMealId ? {
+            ...m,
+            name: mealName,
+            items: finalItems,
+            totalCalories: mealTotals.calories,
+            totalProtein: mealTotals.protein,
+            totalCarbs: mealTotals.carbs,
+            totalFat: mealTotals.fat,
+            imageUrl: imageUrl
+        } : m);
+        
+        setMeals(updatedMealsList);
+
+        } else {
+        // Insert DB
+        const newMealData = {
+            user_id: session.user.id,
+            date: format(new Date(), 'yyyy-MM-dd'),
+            timestamp: Date.now(),
+            name: mealName,
+            items: finalItems,
+            total_calories: mealTotals.calories,
+            total_protein: mealTotals.protein,
+            total_carbs: mealTotals.carbs,
+            total_fat: mealTotals.fat,
+            image_url: imageUrl
+        };
+
+        const { data, error } = await supabase.from('meals').insert(newMealData).select().single();
+        
+        if (error) { throw new Error("Failed to save meal"); }
+
+        const newMeal: Meal = {
+            id: data.id,
+            date: data.date,
+            timestamp: Number(data.timestamp),
+            name: data.name,
+            imageUrl: data.image_url,
+            items: data.items,
+            totalCalories: Number(data.total_calories),
+            totalProtein: Number(data.total_protein),
+            totalCarbs: Number(data.total_carbs),
+            totalFat: Number(data.total_fat)
+        };
+
+        updatedMealsList = [newMeal, ...meals];
+        setMeals(updatedMealsList);
+        setActiveMealTab(0); 
+        }
+
+        if (user) {
+            // Ensure we check streaks AND achievements with the fresh data
+            const updatedUser = await checkStreak(user, updatedMealsList, true);
+            await checkAchievements(updatedUser, updatedMealsList);
+        }
+
+        setShowNutritionModal(false);
+        setPendingImages([]);
+        setEditingMealId(null);
+        setSuggestedMealName('');
+    } catch (error) {
+        console.error("Error saving meal:", error);
+        alert("Failed to save meal. Please try again.");
+    } finally {
+        setIsSaving(false);
     }
-
-    let updatedMealsList = [...meals];
-
-    if (editingMealId) {
-      // Update DB
-      const { error } = await supabase.from('meals').update({
-          name: mealName,
-          items: finalItems,
-          total_calories: mealTotals.calories,
-          total_protein: mealTotals.protein,
-          total_carbs: mealTotals.carbs,
-          total_fat: mealTotals.fat,
-          image_url: imageUrl
-      }).eq('id', editingMealId);
-
-      if (error) { alert("Failed to update meal"); return; }
-
-      // Update State
-      updatedMealsList = meals.map(m => m.id === editingMealId ? {
-        ...m,
-        name: mealName,
-        items: finalItems,
-        totalCalories: mealTotals.calories,
-        totalProtein: mealTotals.protein,
-        totalCarbs: mealTotals.carbs,
-        totalFat: mealTotals.fat,
-        imageUrl: imageUrl
-      } : m);
-      
-      setMeals(updatedMealsList);
-
-    } else {
-      // Insert DB
-      const newMealData = {
-        user_id: session.user.id,
-        date: format(new Date(), 'yyyy-MM-dd'),
-        timestamp: Date.now(),
-        name: mealName,
-        items: finalItems,
-        total_calories: mealTotals.calories,
-        total_protein: mealTotals.protein,
-        total_carbs: mealTotals.carbs,
-        total_fat: mealTotals.fat,
-        image_url: imageUrl
-      };
-
-      const { data, error } = await supabase.from('meals').insert(newMealData).select().single();
-      
-      if (error) { alert("Failed to save meal"); return; }
-
-      const newMeal: Meal = {
-          id: data.id,
-          date: data.date,
-          timestamp: Number(data.timestamp),
-          name: data.name,
-          imageUrl: data.image_url,
-          items: data.items,
-          totalCalories: Number(data.total_calories),
-          totalProtein: Number(data.total_protein),
-          totalCarbs: Number(data.total_carbs),
-          totalFat: Number(data.total_fat)
-      };
-
-      updatedMealsList = [newMeal, ...meals];
-      setMeals(updatedMealsList);
-      setActiveMealTab(0); 
-    }
-
-    if (user) {
-        // Ensure we check streaks AND achievements with the fresh data
-        const updatedUser = await checkStreak(user, updatedMealsList, true);
-        await checkAchievements(updatedUser, updatedMealsList);
-    }
-
-    setShowNutritionModal(false);
-    setPendingImages([]);
-    setEditingMealId(null);
-    setSuggestedMealName('');
   };
 
   // --- VIEW RENDERERS ---
@@ -735,38 +748,6 @@ const App: React.FC = () => {
                             <UserCircle size={20} className="text-gray-400" />
                             Continue as Guest
                         </button>
-
-                        {/* 
-                        <div className="relative py-2">
-                             <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
-                             <div className="relative flex justify-center text-[10px] uppercase font-black"><span className="bg-white px-2 text-gray-400">Or with Phone</span></div>
-                        </div>
-
-                        <form onSubmit={handlePhoneLogin} className="space-y-4">
-                            <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 pl-1">Phone Number</label>
-                                <div className="relative">
-                                    <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                                    <input 
-                                        type="tel" 
-                                        placeholder="+1 234 567 8900"
-                                        value={phone}
-                                        onChange={e => setPhone(e.target.value)}
-                                        className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-900 focus:outline-none focus:border-brand-green/50 focus:bg-white transition-all"
-                                        required
-                                    />
-                                </div>
-                            </div>
-                            <button 
-                                type="submit" 
-                                disabled={authLoading}
-                                className="w-full py-4 bg-brand-dark text-white font-black rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-brand-dark/20 uppercase tracking-widest text-xs"
-                            >
-                                {authLoading ? <Loader2 className="animate-spin" size={18}/> : 'Send OTP Code'}
-                            </button>
-                            <p className="text-[10px] text-center text-gray-400 font-medium">Code sent via SMS or WhatsApp if configured.</p>
-                        </form>
-                        */}
                      </>
                  ) : (
                      <form onSubmit={handleVerifyOtp} className="space-y-6">
@@ -806,90 +787,6 @@ const App: React.FC = () => {
           </div>
       </div>
   );
-
-  const renderPrivacyModal = () => {
-    if (!showPrivacy) return null;
-    return (
-        <div className="fixed inset-0 z-[100] bg-brand-dark/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in safe-top safe-bottom">
-            <div className="bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl relative border border-white/20">
-                <button 
-                  onClick={() => setShowPrivacy(false)} 
-                  className="absolute top-6 right-6 p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
-                >
-                  <X size={20} className="text-gray-600"/>
-                </button>
-                <div className="mb-6">
-                  <div className="w-12 h-12 bg-brand-green/10 rounded-2xl flex items-center justify-center text-brand-green mb-4">
-                    <ShieldCheck size={24} />
-                  </div>
-                  <h3 className="text-2xl font-black text-gray-900 tracking-tight">Privacy & Terms</h3>
-                </div>
-                <div className="space-y-4 text-sm text-gray-600 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-                    <section>
-                      <h4 className="font-bold text-gray-900 mb-1">1. Service Description</h4>
-                      <p>NuTrack AI is a demonstration application that uses Artificial Intelligence to estimate nutritional information from food images.</p>
-                    </section>
-                    <section>
-                      <h4 className="font-bold text-gray-900 mb-1">2. Data Collection</h4>
-                      <p>We collect your authentication details (phone/email) solely for account management. We do not sell your personal data to third parties.</p>
-                    </section>
-                    <section>
-                      <h4 className="font-bold text-gray-900 mb-1">3. AI & Image Processing</h4>
-                      <p>Images you upload are transmitted to Google's Gemini API for analysis. By using this service, you consent to this processing. Images are processed temporarily for the purpose of analysis.</p>
-                    </section>
-                    <section>
-                      <h4 className="font-bold text-gray-900 mb-1">4. Health Disclaimer</h4>
-                      <p>Nutritional data provided is an AI-generated estimate and should not be used for medical purposes. Consult a doctor for professional health advice.</p>
-                    </section>
-                </div>
-                <div className="mt-8 pt-4 border-t border-gray-100">
-                   <button onClick={() => setShowPrivacy(false)} className="w-full py-4 bg-gray-900 text-white font-black rounded-2xl uppercase tracking-widest text-xs hover:bg-black transition-colors">
-                     I Understand
-                   </button>
-                </div>
-            </div>
-        </div>
-    )
-  };
-
-  const renderAchievementCelebration = () => {
-    if (!newlyEarnedBadgeId) return null;
-    const badge = BADGES_DATA[newlyEarnedBadgeId];
-    return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-brand-dark/95 backdrop-blur-xl animate-fade-in px-4">
-        <div className="relative w-full max-w-sm text-center">
-          <div className="relative z-10 space-y-8">
-            <div className={`w-40 h-40 mx-auto rounded-[3rem] ${badge.color} text-white flex items-center justify-center shadow-2xl shadow-brand-green/20 border-4 border-white/20 animate-bounce-slow relative overflow-hidden`}>
-              <div className="absolute inset-0 bg-white/10 animate-pulse"></div>
-              {React.cloneElement(badge.icon as React.ReactElement<{ size?: number }>, { size: 80 })}
-              <Sparkles className="absolute top-4 right-4 text-white/40 animate-spin-slow" size={24} />
-            </div>
-            <div>
-              <h2 className="text-4xl font-black text-white mb-2 uppercase tracking-tighter">Achievement Unlocked!</h2>
-              <p className="text-brand-green font-black text-xl uppercase tracking-widest mb-6">{badge.name}</p>
-              <div className="bg-white/5 border border-white/10 p-6 rounded-3xl backdrop-blur-md">
-                <p className="text-gray-300 font-medium text-lg leading-relaxed">{badge.description}</p>
-              </div>
-            </div>
-            <div className="space-y-3">
-              <button 
-                onClick={() => { setNewlyEarnedBadgeId(null); setView('profile'); }}
-                className="w-full py-5 bg-brand-green hover:bg-emerald-600 text-white font-black rounded-3xl transition-all shadow-xl shadow-brand-green/20 active:scale-95 uppercase tracking-widest text-lg"
-              >
-                Show Me in Trophy Room
-              </button>
-              <button 
-                onClick={() => setNewlyEarnedBadgeId(null)}
-                className="w-full py-4 bg-white/10 hover:bg-white/20 text-white font-bold rounded-2xl transition-all active:scale-95 uppercase tracking-widest text-sm"
-              >
-                Got it, Continue
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   const renderOnboarding = () => (
     <div className="min-h-screen flex items-center justify-center p-4 animate-fade-in relative z-10 safe-top safe-bottom">
@@ -932,7 +829,7 @@ const App: React.FC = () => {
           <div>
             <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Activity Level</label>
             <select name="activity" defaultValue={user?.activityLevel || ActivityLevel.MODERATE} className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold">
-              {Object.values(ActivityLevel).map(level => (
+              {(Object.values(ActivityLevel) as string[]).map(level => (
                 <option key={level} value={level}>{level.split(' (')[0]}</option>
               ))}
             </select>
@@ -940,12 +837,17 @@ const App: React.FC = () => {
           <div>
             <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Primary Goal</label>
             <select name="goalType" defaultValue={user?.goals?.type || GoalType.MAINTENANCE} className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold">
-              {Object.values(GoalType).map(type => (
+              {(Object.values(GoalType) as string[]).map(type => (
                 <option key={type} value={type}>{type}</option>
               ))}
             </select>
           </div>
-          <button type="submit" className="w-full bg-brand-dark hover:bg-black text-white font-black py-5 rounded-2xl transition-all shadow-xl shadow-brand-dark/20 active:scale-[0.98] uppercase tracking-widest mt-4">
+          <button 
+            type="submit" 
+            disabled={isSaving}
+            className="w-full bg-brand-dark hover:bg-black text-white font-black py-5 rounded-2xl transition-all shadow-xl shadow-brand-dark/20 active:scale-[0.98] uppercase tracking-widest mt-4 flex items-center justify-center gap-2"
+          >
+            {isSaving && <Loader2 className="animate-spin" size={18}/>}
             {user ? 'Update My Plan' : 'Create My Plan'}
           </button>
         </form>
@@ -954,212 +856,335 @@ const App: React.FC = () => {
   );
 
   const renderNavbar = () => (
-    <header className="sticky top-0 z-40 w-full bg-white/70 backdrop-blur-xl border-b border-white/40 shadow-sm safe-top">
-      <div className="max-w-5xl mx-auto flex justify-between items-center py-4 px-6">
-        <div className="flex items-center gap-2">
-           {user && (
-             <div className="bg-white/80 text-orange-600 px-3 py-1.5 rounded-xl text-[10px] font-black flex items-center gap-2 shadow-sm border border-white/50">
-               <Flame size={14} fill="currentColor" /> {user.streak}
+    <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-gray-100 p-2 z-40 pb-[env(safe-area-inset-bottom)]">
+      <div className="max-w-md mx-auto grid grid-cols-4 items-center gap-1">
+        <button 
+          onClick={() => setView('dashboard')}
+          className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all ${view === 'dashboard' ? 'text-brand-green bg-brand-green/10' : 'text-gray-400 hover:text-gray-600'}`}
+        >
+          <Menu size={20} strokeWidth={view === 'dashboard' ? 3 : 2} />
+          <span className="text-[9px] font-black uppercase tracking-widest">Dash</span>
+        </button>
+
+        <button 
+          onClick={() => setShowCamera(true)}
+          className="flex flex-col items-center justify-center -mt-8"
+        >
+          <div className="w-14 h-14 bg-brand-green text-white rounded-full shadow-xl shadow-brand-green/40 flex items-center justify-center transform transition-transform active:scale-90 border-4 border-white">
+            <Camera size={24} />
+          </div>
+          <span className="text-[9px] font-black uppercase tracking-widest mt-1 text-gray-400">Scan</span>
+        </button>
+
+        <button 
+          onClick={() => setView('history')}
+          className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all ${view === 'history' ? 'text-brand-green bg-brand-green/10' : 'text-gray-400 hover:text-gray-600'}`}
+        >
+          <History size={20} strokeWidth={view === 'history' ? 3 : 2} />
+          <span className="text-[9px] font-black uppercase tracking-widest">History</span>
+        </button>
+
+        <button 
+          onClick={() => setView('profile')}
+          className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all ${view === 'profile' ? 'text-brand-green bg-brand-green/10' : 'text-gray-400 hover:text-gray-600'}`}
+        >
+          <User size={20} strokeWidth={view === 'profile' ? 3 : 2} />
+          <span className="text-[9px] font-black uppercase tracking-widest">Profile</span>
+        </button>
+      </div>
+    </nav>
+  );
+
+  const renderDashboard = () => {
+    if (!user) return null;
+    
+    // Calculate progress
+    const caloriesProgress = totals.calories;
+    const caloriesGoal = user.goals.calories;
+
+    return (
+      <div className="pb-32 pt-6 space-y-8 animate-fade-in">
+        {/* Header */}
+        <div className="flex justify-between items-center px-2">
+          <div>
+            <h1 className="text-2xl font-black text-gray-900 tracking-tight">Hello, {user.name.split(' ')[0]}</h1>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{format(new Date(), 'EEEE, MMM do')}</p>
+          </div>
+          <div className="flex items-center gap-2 bg-orange-50 px-3 py-1.5 rounded-full border border-orange-100">
+            <Flame size={16} className="text-orange-500 fill-orange-500" />
+            <span className="text-xs font-black text-orange-600">{user.streak} Day Streak</span>
+          </div>
+        </div>
+
+        {/* Main Progress */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+           <CircularProgress 
+              value={caloriesProgress}
+              max={caloriesGoal}
+              color="#00A86B" // brand-green
+              label="Calories"
+              subLabel="Consumed"
+           />
+           
+           <div className="grid grid-cols-2 gap-4">
+             {/* Macros */}
+             <div className="bg-blue-50/50 p-5 rounded-[2rem] border border-blue-100/50 flex flex-col justify-between">
+                <div className="text-blue-500 mb-2"><TrendingUp size={24} /></div>
+                <div>
+                   <p className="text-2xl font-black text-blue-900">{Math.round(totals.protein)}g</p>
+                   <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Protein / {user.goals.protein}g</p>
+                   <div className="w-full h-1.5 bg-blue-100 rounded-full mt-2 overflow-hidden">
+                      <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.min((totals.protein / user.goals.protein) * 100, 100)}%` }}></div>
+                   </div>
+                </div>
+             </div>
+             
+             <div className="bg-amber-50/50 p-5 rounded-[2rem] border border-amber-100/50 flex flex-col justify-between">
+                <div className="text-amber-500 mb-2"><Zap size={24} /></div>
+                <div>
+                   <p className="text-2xl font-black text-amber-900">{Math.round(totals.carbs)}g</p>
+                   <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest">Carbs / {user.goals.carbs}g</p>
+                   <div className="w-full h-1.5 bg-amber-100 rounded-full mt-2 overflow-hidden">
+                      <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.min((totals.carbs / user.goals.carbs) * 100, 100)}%` }}></div>
+                   </div>
+                </div>
+             </div>
+
+             <div className="bg-rose-50/50 p-5 rounded-[2rem] border border-rose-100/50 flex flex-col justify-between col-span-2">
+                 <div className="flex justify-between items-start">
+                    <div className="text-rose-500 mb-2"><Award size={24} /></div>
+                    <div className="text-right">
+                       <p className="text-2xl font-black text-rose-900">{Math.round(totals.fat)}g</p>
+                       <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest">Fat / {user.goals.fat}g</p>
+                    </div>
+                 </div>
+                 <div className="w-full h-1.5 bg-rose-100 rounded-full mt-2 overflow-hidden">
+                    <div className="h-full bg-rose-500 rounded-full" style={{ width: `${Math.min((totals.fat / user.goals.fat) * 100, 100)}%` }}></div>
+                 </div>
+             </div>
+           </div>
+        </div>
+
+        {/* Meals Feed */}
+        <div>
+           <div className="flex justify-between items-center mb-6 px-2">
+             <h2 className="text-lg font-black text-gray-900 uppercase tracking-wide">Today's Meals</h2>
+             <button 
+               onClick={() => { setEditingMealId(null); setSuggestedMealName(''); setCurrentAnalysis([]); setShowNutritionModal(true); }}
+               className="text-[10px] font-black bg-gray-900 text-white px-4 py-2 rounded-full uppercase tracking-widest hover:bg-gray-700 transition-colors"
+             >
+               + Manual Log
+             </button>
+           </div>
+           
+           {todayMeals.length === 0 ? (
+             <div className="text-center py-10 bg-gray-50 rounded-[2.5rem] border border-dashed border-gray-200">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
+                  <Camera size={24} />
+                </div>
+                <p className="text-gray-500 font-bold mb-1">No meals tracked yet</p>
+                <p className="text-xs text-gray-400">Tap the camera button to start</p>
+             </div>
+           ) : (
+             <div className="space-y-4">
+               {todayMeals.map(meal => (
+                 <MealCard 
+                   key={meal.id} 
+                   meal={meal} 
+                   onEdit={handleEditMeal}
+                   onDelete={async (id) => {
+                       const { error } = await supabase.from('meals').delete().eq('id', id);
+                       if (!error) {
+                         setMeals(prev => prev.filter(m => m.id !== id));
+                       }
+                   }}
+                 />
+               ))}
              </div>
            )}
         </div>
-        <div className="text-center">
-          <h1 className="text-xl md:text-2xl font-black text-gray-900 tracking-tighter uppercase cursor-pointer" onClick={() => { setView('dashboard'); setShowMenu(false); }}>
-            NuTrack <span className="text-brand-green">AI</span>
-          </h1>
-        </div>
-        <div className="relative">
-          <button onClick={() => setShowMenu(!showMenu)} className="p-2.5 bg-white/80 hover:bg-white active:scale-95 rounded-xl transition shadow-sm border border-white/50">
-            <Menu size={20} className="text-gray-900" />
-          </button>
-          {showMenu && (
-            <div className="absolute right-0 top-14 bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/50 w-64 py-4 overflow-hidden animate-fade-in z-50">
-              <button onClick={() => { setView('dashboard'); setShowMenu(false); }} className="w-full text-left px-6 py-4 hover:bg-brand-green/10 flex items-center gap-4 text-gray-800 font-bold transition-colors">
-                 <TrendingUp size={20} className="text-brand-green" /> Dashboard
-              </button>
-              <button onClick={() => { setView('history'); setShowMenu(false); }} className="w-full text-left px-6 py-4 hover:bg-brand-green/10 flex items-center gap-4 text-gray-800 font-bold transition-colors">
-                <History size={20} className="text-brand-green" /> Meal History
-              </button>
-              <div className="h-px bg-gray-100 my-2 mx-6"></div>
-              <button onClick={() => { setView('profile'); setShowMenu(false); }} className="w-full text-left px-6 py-4 hover:bg-brand-green/10 flex items-center gap-4 text-gray-800 font-bold transition-colors">
-                <Trophy size={20} className="text-brand-green" /> Profile & Badges
-              </button>
-              <button onClick={handleLogout} className="w-full text-left px-6 py-4 hover:bg-red-50 flex items-center gap-4 text-red-500 font-bold transition-colors">
-                <LogOut size={20} /> Sign Out
-              </button>
-            </div>
-          )}
-        </div>
       </div>
-    </header>
-  );
-
-  const renderDashboard = () => (
-    <div className="pb-24 safe-bottom animate-fade-in relative z-10 pt-4 px-2">
-      <div className="relative mb-8">
-        <div className="glass-card rounded-[3rem] p-6 md:p-10 shadow-2xl shadow-gray-200/50 border-white/60 relative z-10 overflow-hidden">
-          <div className="flex justify-between items-center mb-10">
-            <div>
-              <h2 className="text-2xl md:text-3xl font-black text-gray-900 mb-1">Overview</h2>
-              <p className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Targeting 24h nutrition</p>
-            </div>
-            {user?.earnedBadges && user.earnedBadges.length > 0 && (
-                <div onClick={() => setView('profile')} className="cursor-pointer flex items-center gap-2 bg-brand-green/10 text-brand-green px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest active:scale-95">
-                  <Award size={14} /> {user.earnedBadges.length} Badges
-                </div>
-            )}
-          </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-8">
-            <CircularProgress value={totals.calories} max={user?.goals.calories || 2000} color="#10B981" label="Calories" subLabel="kcal" size={100} />
-            <CircularProgress value={totals.protein} max={user?.goals.protein || 150} color="#3B82F6" label="Protein" subLabel="g" size={100} />
-            <CircularProgress value={totals.carbs} max={user?.goals.carbs || 250} color="#F59E0B" label="Carbs" subLabel="g" size={100} />
-            <CircularProgress value={totals.fat} max={user?.goals.fat || 70} color="#EF4444" label="Fat" subLabel="g" size={100} />
-          </div>
-        </div>
-      </div>
-      
-      <div className="glass-card rounded-[3rem] p-8 text-center mb-8 relative overflow-hidden border-2 border-dashed border-brand-green/30 group bg-white/50 active:bg-white/90 transition-all">
-        {isAnalyzing && (
-            <div className="absolute inset-0 bg-white/95 z-10 flex items-center justify-center backdrop-blur-md">
-                <div className="flex flex-col items-center">
-                    <div className="relative w-16 h-16 mb-4">
-                      <div className="absolute inset-0 border-[4px] border-brand-green/10 rounded-full"></div>
-                      <div className="absolute inset-0 border-[4px] border-brand-green border-t-transparent rounded-full animate-spin"></div>
-                    </div>
-                    <p className="font-black text-brand-green text-lg tracking-tight uppercase">AI Analyzing...</p>
-                </div>
-            </div>
-        )}
-        <h3 className="text-gray-900 font-black text-2xl mb-6 tracking-tight">Log a New Meal</h3>
-        <div className="flex justify-center gap-4 flex-wrap">
-            <label className="cursor-pointer bg-brand-green hover:bg-emerald-600 active:scale-95 text-white px-6 py-4 rounded-[2rem] font-black flex items-center gap-2 transition-all shadow-xl shadow-brand-green/20 text-sm uppercase tracking-widest">
-                <Upload size={20} /> UPLOAD
-                <input type="file" multiple accept="image/*" onChange={handleFileChange} className="hidden" />
-            </label>
-            <button onClick={() => setShowCamera(true)} className="bg-brand-dark hover:bg-black active:scale-95 text-white px-6 py-4 rounded-[2rem] font-black flex items-center gap-2 transition-all shadow-xl shadow-brand-dark/20 text-sm uppercase tracking-widest">
-                <Camera size={20} /> CAMERA
-            </button>
-        </div>
-      </div>
-
-      <div className="flex justify-between items-end mb-4 px-2">
-        <h2 className="text-2xl font-black text-gray-900 tracking-tight">Today</h2>
-        <button onClick={() => { setEditingMealId(null); setSuggestedMealName('Manual Entry'); setCurrentAnalysis([]); setShowNutritionModal(true); }} className="bg-white/80 active:scale-95 border border-brand-green/20 text-brand-green px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-sm">
-            + Manual
-        </button>
-      </div>
-
-      {isLoadingData ? (
-          <div className="py-20 flex justify-center text-brand-green"><Loader2 className="animate-spin" size={32}/></div>
-      ) : todayMeals.length === 0 ? (
-        <div className="glass-card rounded-[3rem] p-16 text-center">
-            <p className="text-gray-400 font-bold italic">No meals logged yet.</p>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <div 
-            ref={tabsContainerRef} 
-            className="flex gap-2 overflow-x-auto no-scrollbar py-2 scroll-smooth"
-          >
-             {todayMeals.map((meal, idx) => (
-                <button 
-                  key={meal.id}
-                  onClick={() => setActiveMealTab(idx)}
-                  className={`px-6 py-3 rounded-2xl font-black text-[9px] uppercase tracking-widest transition-all whitespace-nowrap border shrink-0 ${
-                    activeMealTab === idx 
-                      ? 'bg-brand-green text-white border-brand-green shadow-lg scale-105 z-10' 
-                      : 'bg-white/60 text-gray-400 border-white/50 active:bg-gray-100'
-                  }`}
-                >
-                  {meal.name}
-                </button>
-             ))}
-          </div>
-          
-          <div className="animate-fade-in" key={todayMeals[activeMealTab]?.id}>
-            {todayMeals[activeMealTab] && (
-              <MealCard 
-                meal={todayMeals[activeMealTab]} 
-                onEdit={handleEditMeal} 
-                onDelete={async (id) => {
-                  const { error } = await supabase.from('meals').delete().eq('id', id);
-                  if (!error) {
-                    setMeals(prev => prev.filter(m => m.id !== id));
-                    setActiveMealTab(0);
-                  }
-                }} 
-              />
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-
-  const renderHistory = () => {
-    return <HistoryView meals={meals} user={user} handleEditMeal={handleEditMeal} setMeals={setMeals} />
+    );
   };
 
-  const renderProfile = () => (
-      <div className="pb-24 safe-bottom animate-fade-in relative z-10 pt-4 px-2">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-1 space-y-6">
-                <div className="glass-card rounded-[3rem] p-10 shadow-2xl text-center relative overflow-hidden">
-                    <div className="inline-flex items-center justify-center w-24 h-24 bg-brand-green/10 text-brand-green rounded-[2.5rem] mb-6">
-                        <User size={48} />
-                    </div>
-                    <h2 className="text-3xl font-black text-gray-900 mb-2 tracking-tight">{user?.name}</h2>
-                    <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-8">{session?.user?.email}</p>
-                    <div className="space-y-3">
-                        <div className="flex justify-between p-4 bg-white/50 rounded-2xl border border-white">
-                            <span className="text-[10px] font-black text-gray-400 uppercase">Goal</span>
-                            <span className="font-black text-gray-900">{user?.goals.calories} kcal</span>
-                        </div>
-                        <div className="flex justify-between p-4 bg-brand-green text-white rounded-2xl shadow-lg shadow-brand-green/20">
-                            <span className="text-[10px] font-black uppercase">Streak</span>
-                            <span className="font-black">{user?.streak} Days</span>
-                        </div>
-                    </div>
-                    <button onClick={() => setView('onboarding')} className="w-full mt-8 py-4 bg-gray-100/50 hover:bg-gray-100 active:scale-95 text-gray-900 rounded-2xl font-black text-[11px] uppercase tracking-widest transition flex items-center justify-center gap-2">
-                        <Settings size={16} /> Edit Profile
-                    </button>
-                </div>
-            </div>
-            <div className="lg:col-span-2">
-                <div className="glass-card rounded-[3rem] p-6 md:p-10 shadow-2xl min-h-full">
-                    <div className="flex justify-between items-center mb-10">
-                        <h2 className="text-3xl font-black text-gray-900 tracking-tight flex items-center gap-4">
-                            <Trophy className="text-yellow-500" size={32} /> Badges
-                        </h2>
-                        <div className="bg-brand-green/10 text-brand-green px-4 py-2 rounded-2xl font-black text-[10px]">
-                            {user?.earnedBadges?.length || 0} EARNED
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {Object.entries(BADGES_DATA).map(([id, data]) => {
-                            const isEarned = user?.earnedBadges?.includes(id);
-                            return (
-                                <div key={id} className={`p-5 rounded-[2.5rem] border-2 transition-all flex items-center gap-4 ${isEarned ? `border-brand-green bg-white shadow-xl` : 'border-dashed border-gray-200 opacity-50 grayscale'}`}>
-                                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-md ${isEarned ? data.color : 'bg-gray-100 text-gray-400'}`}>
-                                        {React.cloneElement(data.icon as React.ReactElement<{ size?: number }>, { size: 28 })}
-                                    </div>
-                                    <div className="flex-1">
-                                        <h4 className={`font-black text-lg tracking-tight ${isEarned ? 'text-gray-900' : 'text-gray-400'}`}>{data.name}</h4>
-                                        <p className="text-[10px] text-gray-500 font-medium">{data.description}</p>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            </div>
-          </div>
-      </div>
-  );
+  const renderHistory = () => {
+    // Group meals by date
+    const groupedMeals = useMemo(() => {
+        const groups: Record<string, Meal[]> = {};
+        meals.forEach(meal => {
+            if (!groups[meal.date]) groups[meal.date] = [];
+            groups[meal.date].push(meal);
+        });
+        return groups;
+    }, [meals]);
 
-  if (isLoadingAuth) {
-      return <div className="min-h-screen flex items-center justify-center bg-mesh"><Loader2 className="animate-spin text-brand-green" size={48} /></div>;
-  }
+    const dates = Object.keys(groupedMeals).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+    return (
+        <div className="pb-32 pt-6 space-y-8 animate-fade-in">
+            <h1 className="text-2xl font-black text-gray-900 px-2 tracking-tight">History</h1>
+            
+            {dates.length === 0 ? (
+                <div className="text-center py-20">
+                    <p className="text-gray-400 font-bold">No history available yet.</p>
+                </div>
+            ) : (
+                <div className="space-y-8">
+                    {dates.map(date => {
+                        const dayMeals = groupedMeals[date];
+                        const dayTotal = dayMeals.reduce((acc, m) => acc + m.totalCalories, 0);
+                        const isToday = date === format(new Date(), 'yyyy-MM-dd');
+                        
+                        return (
+                            <div key={date}>
+                                <div className="flex items-center justify-between px-2 mb-4">
+                                    <h3 className={`font-black uppercase tracking-widest ${isToday ? 'text-brand-green' : 'text-gray-400'}`}>
+                                        {isToday ? 'Today' : format(new Date(date), 'MMMM do')}
+                                    </h3>
+                                    <span className="text-xs font-bold bg-gray-100 px-3 py-1 rounded-full text-gray-600">
+                                        {Math.round(dayTotal)} kcal
+                                    </span>
+                                </div>
+                                <div className="space-y-4">
+                                    {dayMeals.map(meal => (
+                                        <MealCard 
+                                            key={meal.id} 
+                                            meal={meal} 
+                                            onEdit={handleEditMeal}
+                                            onDelete={async (id) => {
+                                                if (window.confirm('Delete this meal?')) {
+                                                    const { error } = await supabase.from('meals').delete().eq('id', id);
+                                                    if (!error) setMeals(prev => prev.filter(m => m.id !== id));
+                                                }
+                                            }}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+  };
+
+  const renderProfile = () => {
+      if (!user) return null;
+      
+      return (
+          <div className="pb-32 pt-6 space-y-8 animate-fade-in">
+             <div className="flex items-center justify-between px-2">
+                <h1 className="text-2xl font-black text-gray-900 tracking-tight">Profile</h1>
+                <button onClick={handleLogout} className="p-2 bg-gray-100 rounded-full text-gray-600 hover:bg-gray-200">
+                    <LogOut size={20} />
+                </button>
+             </div>
+
+             <div className="bg-white border border-gray-100 p-6 rounded-[2.5rem] shadow-sm flex items-center gap-6">
+                <div className="w-20 h-20 bg-brand-green/10 text-brand-green rounded-full flex items-center justify-center text-2xl font-black">
+                    {user.name.charAt(0)}
+                </div>
+                <div>
+                    <h2 className="text-xl font-black text-gray-900">{user.name}</h2>
+                    <p className="text-sm font-bold text-gray-400">{user.goals.type}</p>
+                    <div className="flex gap-4 mt-3">
+                        <div className="text-center">
+                            <span className="block text-xs font-black text-gray-900">{user.weight}kg</span>
+                            <span className="text-[9px] text-gray-400 uppercase font-bold">Weight</span>
+                        </div>
+                        <div className="text-center">
+                            <span className="block text-xs font-black text-gray-900">{user.height}cm</span>
+                            <span className="text-[9px] text-gray-400 uppercase font-bold">Height</span>
+                        </div>
+                        <div className="text-center">
+                            <span className="block text-xs font-black text-gray-900">{user.age}</span>
+                            <span className="text-[9px] text-gray-400 uppercase font-bold">Age</span>
+                        </div>
+                    </div>
+                </div>
+             </div>
+
+             <div className="px-2">
+                 <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest mb-4">Badges & Achievements</h3>
+                 <div className="grid grid-cols-4 gap-4">
+                     {Object.entries(BADGES_DATA).map(([id, badge]) => {
+                         const isEarned = user.earnedBadges.includes(id);
+                         return (
+                             <div key={id} className={`aspect-square rounded-2xl flex flex-col items-center justify-center gap-2 p-2 text-center transition-all ${isEarned ? 'bg-white shadow-sm border border-gray-100' : 'bg-gray-50 opacity-50 grayscale'}`}>
+                                 <div className={`w-8 h-8 rounded-full ${isEarned ? badge.color : 'bg-gray-300'} flex items-center justify-center text-white text-xs`}>
+                                     {badge.icon}
+                                 </div>
+                                 <span className="text-[8px] font-bold leading-tight">{badge.name}</span>
+                             </div>
+                         );
+                     })}
+                 </div>
+             </div>
+
+             <div className="px-2">
+                 <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest mb-4">Settings</h3>
+                 <button onClick={() => setView('onboarding')} className="w-full bg-white border border-gray-100 p-4 rounded-2xl flex items-center justify-between group hover:shadow-md transition-all">
+                     <span className="font-bold text-gray-900">Edit Profile & Goals</span>
+                     <ChevronRight className="text-gray-300 group-hover:text-brand-green" />
+                 </button>
+                 <div className="mt-4 text-center">
+                     <button onClick={() => setShowPrivacy(true)} className="text-[10px] font-bold text-gray-400 uppercase tracking-widest hover:text-gray-600">
+                         Privacy Policy
+                     </button>
+                 </div>
+             </div>
+          </div>
+      );
+  };
+
+  const renderAchievementCelebration = () => {
+    if (!newlyEarnedBadgeId) return null;
+    const badge = BADGES_DATA[newlyEarnedBadgeId];
+    if (!badge) return null;
+
+    return (
+      <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-fade-in">
+        <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full text-center relative overflow-hidden">
+           <div className="absolute inset-0 bg-gradient-to-b from-brand-green/20 to-transparent opacity-50"></div>
+           <div className={`w-32 h-32 mx-auto ${badge.color} rounded-full flex items-center justify-center text-white shadow-2xl mb-6 animate-bounce`}>
+             <div className="scale-150">{badge.icon}</div>
+           </div>
+           <h2 className="text-3xl font-black text-gray-900 mb-2">Badge Unlocked!</h2>
+           <p className="text-xl font-bold text-brand-green mb-4">{badge.name}</p>
+           <p className="text-gray-500 font-medium mb-8">{badge.description}</p>
+           <button 
+             onClick={() => setNewlyEarnedBadgeId(null)}
+             className="w-full py-4 bg-gray-900 text-white font-black rounded-2xl hover:bg-black transition-colors"
+           >
+             Awesome!
+           </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderPrivacyModal = () => {
+    if (!showPrivacy) return null;
+    return (
+      <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="bg-white rounded-[2rem] max-w-lg w-full max-h-[80vh] overflow-hidden flex flex-col">
+          <div className="p-6 border-b flex justify-between items-center">
+            <h3 className="font-black text-xl">Privacy Policy</h3>
+            <button onClick={() => setShowPrivacy(false)} className="p-2 hover:bg-gray-100 rounded-full">
+              <X size={24} />
+            </button>
+          </div>
+          <div className="p-6 overflow-y-auto text-sm text-gray-600 space-y-4">
+            <p><strong>1. Data Collection:</strong> We store your nutrition logs and profile data securely.</p>
+            <p><strong>2. AI Analysis:</strong> Images are processed by Google Gemini API. We do not use them for training.</p>
+            <p><strong>3. Deletion:</strong> You can request account deletion at any time.</p>
+            <p className="text-xs text-gray-400 mt-8">Last updated: Oct 2023</p>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="no-scrollbar min-h-screen">
@@ -1180,6 +1205,7 @@ const App: React.FC = () => {
             items={currentAnalysis}
             onCancel={() => { setShowNutritionModal(false); setPendingImages([]); setEditingMealId(null); setSuggestedMealName(''); }}
             onSave={saveMeal}
+            isSaving={isSaving}
         />
       )}
     </div>
@@ -1193,6 +1219,8 @@ interface MealCardProps {
 }
 
 const MealCard: React.FC<MealCardProps> = ({ meal, onEdit, onDelete }) => {
+  const [isDeleting, setIsDeleting] = useState(false);
+
   return (
     <div className="bg-white/80 backdrop-blur-xl border border-white/60 p-6 rounded-[2.5rem] shadow-sm relative group overflow-hidden hover:shadow-lg transition-all duration-300">
       <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 translate-x-4 group-hover:translate-x-0 duration-300">
@@ -1205,11 +1233,16 @@ const MealCard: React.FC<MealCardProps> = ({ meal, onEdit, onDelete }) => {
         <button 
             onClick={async (e) => { 
                 e.stopPropagation(); 
-                if (window.confirm('Delete this meal?')) await onDelete(meal.id); 
+                if (window.confirm('Delete this meal?')) {
+                    setIsDeleting(true);
+                    await onDelete(meal.id);
+                    setIsDeleting(false);
+                }
             }} 
-            className="p-3 bg-white text-rose-500 rounded-full hover:bg-rose-500 hover:text-white transition-colors shadow-md border border-gray-100"
+            disabled={isDeleting}
+            className="p-3 bg-white text-rose-500 rounded-full hover:bg-rose-500 hover:text-white transition-colors shadow-md border border-gray-100 disabled:opacity-50"
         >
-            <Trash2 size={16} />
+            {isDeleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
         </button>
       </div>
       
@@ -1254,103 +1287,6 @@ const MealCard: React.FC<MealCardProps> = ({ meal, onEdit, onDelete }) => {
       </div>
     </div>
   );
-};
-
-interface HistoryViewProps {
-    meals: Meal[];
-    user: UserProfile | null;
-    handleEditMeal: (meal: Meal) => void;
-    setMeals: React.Dispatch<React.SetStateAction<Meal[]>>;
-}
-
-const HistoryView: React.FC<HistoryViewProps> = ({ meals, user, handleEditMeal, setMeals }) => {
-    const groupedMeals = useMemo(() => {
-        const groups: Record<string, Meal[]> = {};
-        meals.forEach(meal => {
-            if (!groups[meal.date]) groups[meal.date] = [];
-            groups[meal.date].push(meal);
-        });
-        return groups;
-    }, [meals]);
-
-    const sortedDates = Object.keys(groupedMeals).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-
-    return (
-        <div className="pb-24 safe-bottom animate-fade-in relative z-10 pt-4 px-2">
-            <div className="mb-8 flex items-center justify-between">
-                <div>
-                  <h2 className="text-3xl font-black text-gray-900 tracking-tight">History</h2>
-                  <p className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Your Logged Meals</p>
-                </div>
-                <div className="bg-gray-100 text-gray-500 px-4 py-2 rounded-2xl font-black text-[10px]">
-                    {meals.length} ENTRIES
-                </div>
-            </div>
-
-            {sortedDates.length === 0 ? (
-                <div className="glass-card rounded-[3rem] p-16 text-center border-dashed border-2 border-gray-200 bg-white/50">
-                    <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6 text-gray-400">
-                      <History size={32} />
-                    </div>
-                    <h3 className="text-gray-900 font-bold text-lg mb-2">No meals logged yet</h3>
-                    <p className="text-gray-400 text-sm">Start tracking your nutrition by logging your first meal on the dashboard.</p>
-                </div>
-            ) : (
-                <div className="space-y-10 relative">
-                    {/* Vertical Line */}
-                    <div className="absolute left-4 top-4 bottom-4 w-0.5 bg-gray-100 z-0 hidden md:block"></div>
-                    
-                    {sortedDates.map(date => {
-                        const dayMeals = groupedMeals[date];
-                        const dayTotal = dayMeals.reduce((acc, m) => acc + m.totalCalories, 0);
-                        const goal = user?.goals.calories || 2000;
-                        const percentage = Math.min(100, Math.round((dayTotal / goal) * 100));
-                        let colorClass = 'bg-brand-green';
-                        if (percentage > 110) colorClass = 'bg-rose-500';
-                        else if (percentage < 50) colorClass = 'bg-yellow-500';
-
-                        return (
-                            <div key={date} className="relative z-10">
-                                <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 gap-2 bg-white/80 backdrop-blur-md p-4 rounded-3xl border border-white sticky top-20 shadow-sm z-20">
-                                    <div className="flex items-center gap-4">
-                                        <div className={`hidden md:flex flex-col items-center justify-center w-16 h-16 rounded-2xl ${colorClass} text-white shadow-lg`}>
-                                            <span className="text-2xl font-black leading-none">{format(new Date(date), 'dd')}</span>
-                                            <span className="text-[8px] font-black uppercase tracking-widest">{format(new Date(date), 'MMM')}</span>
-                                        </div>
-                                        <div>
-                                            <h3 className="text-xl font-black text-gray-900 tracking-tight">{format(new Date(date), 'EEEE, MMMM do')}</h3>
-                                            <div className="flex items-center gap-2 mt-1">
-                                                <div className="h-2 w-32 bg-gray-100 rounded-full overflow-hidden">
-                                                    <div className={`h-full ${colorClass}`} style={{ width: `${percentage}%` }}></div>
-                                                </div>
-                                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{dayTotal} / {goal} kcal</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div className="space-y-4 md:pl-8">
-                                    {dayMeals.map(meal => (
-                                        <MealCard
-                                            key={meal.id}
-                                            meal={meal}
-                                            onEdit={handleEditMeal}
-                                            onDelete={async (id) => {
-                                                const { error } = await supabase.from('meals').delete().eq('id', id);
-                                                if (!error) {
-                                                    setMeals(prev => prev.filter(m => m.id !== id));
-                                                }
-                                            }}
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-                        )
-                    })}
-                </div>
-            )}
-        </div>
-    );
 };
 
 export default App;

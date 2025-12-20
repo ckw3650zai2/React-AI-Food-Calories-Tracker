@@ -1,16 +1,16 @@
-
 import React, { useState } from 'react';
 import { FoodItem } from '../types';
-import { X, Plus, Trash2, Edit3, AlertCircle } from 'lucide-react';
+import { X, Plus, Trash2, Edit3, AlertCircle, Loader2 } from 'lucide-react';
 
 interface NutritionModalProps {
   initialTitle?: string;
   items: FoodItem[];
   onSave: (items: FoodItem[], title: string) => void;
   onCancel: () => void;
+  isSaving?: boolean;
 }
 
-const NutritionModal: React.FC<NutritionModalProps> = ({ initialTitle = '', items: initialItems, onSave, onCancel }) => {
+const NutritionModal: React.FC<NutritionModalProps> = ({ initialTitle = '', items: initialItems, onSave, onCancel, isSaving = false }) => {
   const [items, setItems] = useState<FoodItem[]>(initialItems);
   const [mealTitle, setMealTitle] = useState(initialTitle);
   const [error, setError] = useState<string | null>(null);
@@ -206,14 +206,16 @@ const NutritionModal: React.FC<NutritionModalProps> = ({ initialTitle = '', item
         </div>
 
         <div className="p-8 border-t bg-gray-50 flex justify-end gap-4">
-          <button onClick={onCancel} className="px-8 py-4 rounded-2xl text-gray-500 font-black text-[11px] uppercase tracking-widest hover:bg-gray-200 transition-colors">
+          <button onClick={onCancel} disabled={isSaving} className="px-8 py-4 rounded-2xl text-gray-500 font-black text-[11px] uppercase tracking-widest hover:bg-gray-200 transition-colors disabled:opacity-50">
             Cancel
           </button>
           <button 
             onClick={handleSave} 
-            className="px-10 py-4 rounded-2xl bg-brand-dark hover:bg-black text-white font-black text-[11px] uppercase tracking-widest transition-all shadow-xl shadow-brand-dark/20 active:scale-95"
+            disabled={isSaving}
+            className="px-10 py-4 rounded-2xl bg-brand-dark hover:bg-black text-white font-black text-[11px] uppercase tracking-widest transition-all shadow-xl shadow-brand-dark/20 active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
           >
-            Save Meal Log
+            {isSaving && <Loader2 className="animate-spin" size={16} />}
+            {isSaving ? 'Saving...' : 'Save Meal Log'}
           </button>
         </div>
       </div>
