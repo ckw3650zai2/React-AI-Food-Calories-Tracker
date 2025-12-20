@@ -19,6 +19,10 @@ export const fileToGenerativePart = async (file: File): Promise<{ inlineData: { 
 };
 
 export const analyzeMealImage = async (files: File[]): Promise<any> => {
+  if (!process.env.API_KEY) {
+      throw new Error("Missing Google Gemini API Key. Please configure API_KEY in your .env file.");
+  }
+
   // Always use a new GoogleGenAI instance for each request to ensure fresh configuration.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const imageParts = await Promise.all(files.map(file => fileToGenerativePart(file)));
@@ -80,7 +84,6 @@ export const analyzeMealImage = async (files: File[]): Promise<any> => {
       }
     });
 
-    // Access the text property directly from the response.
     const text = response.text;
     if (!text) throw new Error("Empty response from AI");
     

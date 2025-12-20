@@ -4,9 +4,9 @@ import {
   ActivityLevel, 
   UserProfile, 
   Meal, 
-  FoodItem,
-  Badge
+  FoodItem
 } from './types';
+import { supabase, isSupabaseConfigured } from './services/supabaseClient';
 import { analyzeMealImage } from './services/geminiService';
 import CircularProgress from './components/CircularProgress';
 import CameraModal from './components/CameraModal';
@@ -14,7 +14,6 @@ import NutritionModal from './components/NutritionModal';
 import { 
   Camera, 
   Upload, 
-  Plus, 
   Menu, 
   Calendar as CalendarIcon, 
   Flame, 
@@ -29,21 +28,22 @@ import {
   Zap,
   Pencil,
   Trophy,
-  Star,
   CheckCircle,
   Camera as CameraIcon,
   Target,
   Eye,
   Clock,
   Sparkles,
-  CalendarDays
+  CalendarDays,
+  Smartphone,
+  Mail,
+  Loader2,
+  LogOut,
+  AlertTriangle
 } from 'lucide-react';
 import { format, isSameDay, subMonths, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth } from 'date-fns';
 
 // Constants
-const STORAGE_KEY_USER = 'ai_tracker_user';
-const STORAGE_KEY_MEALS = 'ai_tracker_meals';
-
 const BADGES_DATA: Record<string, { name: string; description: string; icon: React.ReactNode; color: string }> = {
   'starter': { name: 'First Bite', description: 'Log your very first meal.', icon: <CheckCircle />, color: 'bg-blue-500' },
   'streak_7': { name: 'Week Warrior', description: 'Maintain a 7-day streak.', icon: <Flame />, color: 'bg-orange-500' },
@@ -55,12 +55,17 @@ const BADGES_DATA: Record<string, { name: string; description: string; icon: Rea
 };
 
 const App: React.FC = () => {
-  // State
+  // Global Auth State
+  const [session, setSession] = useState<any>(null);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+
+  // App Data State
   const [user, setUser] = useState<UserProfile | null>(null);
   const [meals, setMeals] = useState<Meal[]>([]);
-  const [view, setView] = useState<'onboarding' | 'dashboard' | 'history' | 'profile'>('onboarding');
+  const [view, setView] = useState<'auth' | 'onboarding' | 'dashboard' | 'history' | 'profile'>('auth');
   const [showMenu, setShowMenu] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(false);
   
   // Tabs state for Dashboard
   const [activeMealTab, setActiveMealTab] = useState(0);
@@ -77,6 +82,171 @@ const App: React.FC = () => {
   // Achievement Animation State
   const [newlyEarnedBadgeId, setNewlyEarnedBadgeId] = useState<string | null>(null);
 
+  // Auth Form State
+  const [authMode, setAuthMode] = useState<'signin' | 'otp'>('signin');
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // --- INITIALIZATION ---
+
+  useEffect(() => {
+    // Attempt to get session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) {
+        fetchUserData(session.user.id);
+      } else {
+        setView('auth');
+        setIsLoadingAuth(false);
+      }
+    }).catch(err => {
+      console.warn("Auth initialization error:", err);
+      // Even if it fails (e.g. invalid URL), stop loading so user sees UI
+      setIsLoadingAuth(false);
+      setView('auth');
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) {
+        fetchUserData(session.user.id);
+      } else {
+        setMeals([]);
+        setUser(null);
+        setView('auth');
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // --- SUPABASE DATA FETCHING ---
+
+  const fetchUserData = async (userId: string) => {
+    setIsLoadingData(true);
+    try {
+      // Fetch Profile
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      // Fetch Meals
+      const { data: mealsData, error: mealsError } = await supabase
+        .from('meals')
+        .select('*')
+        .eq('user_id', userId)
+        .order('timestamp', { ascending: false });
+
+      if (profileError && profileError.code === 'PGRST116') {
+        // User exists in auth but no profile -> Onboarding
+        setView('onboarding');
+      } else if (profile) {
+        // Map snake_case SQL to camelCase Types
+        const mappedUser: UserProfile = {
+            name: profile.name,
+            age: profile.age,
+            gender: profile.gender,
+            weight: profile.weight,
+            height: profile.height,
+            activityLevel: profile.activity_level,
+            goals: profile.goals,
+            streak: profile.streak,
+            lastLoginDate: profile.last_login_date,
+            lastLoginTimestamp: Number(profile.last_login_timestamp),
+            lastMealTimestamp: Number(profile.last_meal_timestamp),
+            earnedBadges: profile.earned_badges || [],
+            totalMealsLogged: profile.total_meals_logged || 0
+        };
+
+        const mappedMeals: Meal[] = (mealsData || []).map(m => ({
+            id: m.id,
+            date: m.date,
+            timestamp: Number(m.timestamp),
+            name: m.name,
+            imageUrl: m.image_url,
+            items: m.items,
+            totalCalories: Number(m.total_calories),
+            totalProtein: Number(m.total_protein),
+            totalCarbs: Number(m.total_carbs),
+            totalFat: Number(m.total_fat)
+        }));
+
+        setUser(mappedUser);
+        setMeals(mappedMeals);
+        checkStreak(mappedUser, mappedMeals, false); // Check streak on load
+        setView('dashboard');
+      }
+    } catch (error) {
+      console.error("Error fetching data:", error);
+    } finally {
+      setIsLoadingData(false);
+      setIsLoadingAuth(false);
+    }
+  };
+
+  // --- AUTH HANDLERS ---
+
+  const handleGoogleLogin = async () => {
+    if (!isSupabaseConfigured) {
+      alert("Application is not configured. Please check your .env file.");
+      return;
+    }
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin }
+    });
+    if (error) alert(error.message);
+    setAuthLoading(false);
+  };
+
+  const handlePhoneLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isSupabaseConfigured) {
+      alert("Application is not configured. Please check your .env file.");
+      return;
+    }
+    setAuthLoading(true);
+    
+    // For WhatsApp, we need to specify the channel
+    // If you want pure WhatsApp, use options: { channel: 'whatsapp' }
+    // If you want standard SMS, remove the options object or use 'sms'
+    const { error } = await supabase.auth.signInWithOtp({
+      phone: phone,
+      // options: { channel: 'whatsapp' } // Uncomment this to force WhatsApp
+    });
+    
+    if (error) {
+      alert("Error sending OTP: " + error.message);
+    } else {
+      setAuthMode('otp');
+    }
+    setAuthLoading(false);
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    const { error } = await supabase.auth.verifyOtp({
+      phone: phone,
+      token: otp,
+      type: 'sms',
+    });
+    if (error) alert("Invalid OTP");
+    setAuthLoading(false);
+  };
+
+  const handleLogout = async () => {
+      await supabase.auth.signOut();
+  };
+
+  // --- UI EFFECTS ---
+
   // Auto-scroll active tab into view
   useEffect(() => {
     if (tabsContainerRef.current && activeMealTab >= 0) {
@@ -92,7 +262,7 @@ const App: React.FC = () => {
   }, [activeMealTab]);
 
   // Achievement Logic
-  const checkAchievements = useCallback((currentUser: UserProfile, currentMeals: Meal[]) => {
+  const checkAchievements = useCallback(async (currentUser: UserProfile, currentMeals: Meal[]) => {
     const existingBadges = new Set(currentUser.earnedBadges || []);
     const earned = new Set(currentUser.earnedBadges || []);
     
@@ -101,7 +271,8 @@ const App: React.FC = () => {
     
     const mealsWithPhotos = currentMeals.filter(m => m.imageUrl);
     if (mealsWithPhotos.length >= 10) earned.add('photo_10');
-    const mealsWithCamera = currentMeals.filter(m => m.imageUrl && m.imageUrl.startsWith('blob:')); 
+    // Note: checking 'blob:' is for local only. Remote check would check storage path.
+    const mealsWithCamera = currentMeals.filter(m => m.imageUrl); 
     if (mealsWithCamera.length >= 5) earned.add('camera_5');
     
     if (currentUser.streak >= 7) earned.add('streak_7');
@@ -122,60 +293,30 @@ const App: React.FC = () => {
     if (hasPerfectDay) earned.add('sniper');
 
     if (earned.size !== existingBadges.size) {
-      earned.forEach(id => {
+      const newBadges = Array.from(earned);
+      // Find what's new for animation
+      newBadges.forEach(id => {
         if (!existingBadges.has(id)) {
           setNewlyEarnedBadgeId(id);
         }
       });
 
-      setUser(prev => prev ? {
-        ...prev,
-        earnedBadges: Array.from(earned),
-        totalMealsLogged: currentMeals.length
-      } : null);
-    }
-  }, []);
+      // Optimistic Update
+      setUser(prev => prev ? { ...prev, earnedBadges: newBadges } : null);
 
-  // Load Data
-  useEffect(() => {
-    const savedUser = localStorage.getItem(STORAGE_KEY_USER);
-    const savedMeals = localStorage.getItem(STORAGE_KEY_MEALS);
-
-    let initialMeals: Meal[] = [];
-    if (savedMeals) {
-      try {
-        initialMeals = JSON.parse(savedMeals);
-        setMeals(initialMeals);
-      } catch (e) {
-        setMeals([]);
+      // DB Update
+      if (session?.user?.id) {
+          await supabase.from('profiles').update({
+              earned_badges: newBadges
+          }).eq('id', session.user.id);
       }
     }
-
-    if (savedUser) {
-      try {
-        const parsedUser = JSON.parse(savedUser);
-        checkStreak(parsedUser, initialMeals, false);
-      } catch (e) {
-        setView('onboarding');
-      }
-    } else {
-      setView('onboarding');
-    }
-  }, []);
-
-  // Save Data Effect
-  useEffect(() => {
-    if (user) {
-      localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
-      checkAchievements(user, meals);
-    }
-    localStorage.setItem(STORAGE_KEY_MEALS, JSON.stringify(meals));
-  }, [user, meals, checkAchievements]);
+  }, [session]);
 
   /**
    * Streak Logic
    */
-  const checkStreak = (userData: UserProfile, currentMeals: Meal[], isMealLogged: boolean) => {
+  const checkStreak = async (userData: UserProfile, currentMeals: Meal[], isMealLogged: boolean) => {
     const now = Date.now();
     const lastMeal = userData.lastMealTimestamp || now;
     const lastUpdate = userData.lastLoginTimestamp || now;
@@ -187,36 +328,47 @@ const App: React.FC = () => {
     let newLastUpdate = userData.lastLoginTimestamp || now;
     let newLastMeal = userData.lastMealTimestamp || now;
 
+    let hasChanged = false;
+
     if (isMealLogged) {
       if (diffMealHours >= 48) {
         newStreak = 1;
         newLastUpdate = now;
+        hasChanged = true;
       } 
       else if (diffUpdateHours >= 24) {
         newStreak += 1;
         newLastUpdate = now;
+        hasChanged = true;
       }
       newLastMeal = now;
+      hasChanged = true; // Meal logged always updates meal timestamp
     } else {
+      // Just logging in
       if (diffMealHours >= 48) {
         newStreak = 1;
         newLastUpdate = now;
-        newLastMeal = now;
+        newLastMeal = now; // Reset meal timer on broken streak
+        hasChanged = true;
       }
     }
 
-    const updatedUser: UserProfile = { 
-      ...userData, 
-      streak: newStreak, 
-      lastLoginDate: format(new Date(), 'yyyy-MM-dd'),
-      lastLoginTimestamp: newLastUpdate,
-      lastMealTimestamp: newLastMeal,
-      earnedBadges: userData.earnedBadges || [],
-      totalMealsLogged: currentMeals.length || userData.totalMealsLogged || 0
-    };
-    
-    setUser(updatedUser);
-    setView('dashboard');
+    if (hasChanged && session?.user?.id) {
+        const updates = {
+            streak: newStreak,
+            last_login_date: format(new Date(), 'yyyy-MM-dd'),
+            last_login_timestamp: newLastUpdate,
+            last_meal_timestamp: newLastMeal,
+            total_meals_logged: currentMeals.length
+        };
+        
+        // Optimistic
+        const updatedUser = { ...userData, ...updates } as UserProfile;
+        setUser(updatedUser);
+
+        // DB
+        await supabase.from('profiles').update(updates).eq('id', session.user.id);
+    }
   };
 
   const calculateGoals = (age: number, gender: Gender, weight: number, height: number, activity: ActivityLevel) => {
@@ -239,8 +391,10 @@ const App: React.FC = () => {
     };
   };
 
-  const handleOnboardingSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleOnboardingSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!session?.user?.id) return;
+
     const formData = new FormData(e.currentTarget);
     const age = Number(formData.get('age'));
     const weight = Number(formData.get('weight'));
@@ -254,17 +408,44 @@ const App: React.FC = () => {
 
     const goals = calculateGoals(age, gender, weight, height, activity);
     const now = Date.now();
-    const newUser: UserProfile = {
+    
+    const profileData = {
+      id: session.user.id,
+      email: session.user.email,
       name: user?.name || 'User',
+      age,
+      gender,
+      weight,
+      height,
+      activity_level: activity,
+      goals,
+      streak: 1,
+      last_login_date: format(new Date(), 'yyyy-MM-dd'),
+      last_login_timestamp: now,
+      last_meal_timestamp: now,
+      earned_badges: [],
+      total_meals_logged: 0
+    };
+
+    const { error } = await supabase.from('profiles').upsert(profileData);
+    if (error) {
+        alert("Error saving profile: " + error.message);
+        return;
+    }
+
+    // Convert back to camelCase for local state
+    const newUser: UserProfile = {
+      name: profileData.name,
       age, weight, height, gender, activityLevel: activity,
       goals,
-      streak: user?.streak || 1,
-      lastLoginDate: user?.lastLoginDate || format(new Date(), 'yyyy-MM-dd'),
-      lastLoginTimestamp: user?.lastLoginTimestamp || now,
-      lastMealTimestamp: user?.lastMealTimestamp || now,
-      earnedBadges: user?.earnedBadges || [],
-      totalMealsLogged: user?.totalMealsLogged || 0
+      streak: 1,
+      lastLoginDate: profileData.last_login_date,
+      lastLoginTimestamp: now,
+      lastMealTimestamp: now,
+      earnedBadges: [],
+      totalMealsLogged: 0
     };
+
     setUser(newUser);
     setView('dashboard');
   };
@@ -285,7 +466,7 @@ const App: React.FC = () => {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const files = Array.from(e.target.files);
+      const files = Array.from(e.target.files) as File[];
       setPendingImages(files);
       analyzeImages(files);
     }
@@ -304,7 +485,7 @@ const App: React.FC = () => {
       setSuggestedMealName(data.mealName || '');
       setShowNutritionModal(true);
     } catch (err) {
-      alert("Failed to analyze image. Please check your connection.");
+      alert("Failed to analyze image. Please check your connection and API Key.");
     } finally {
       setIsAnalyzing(false);
     }
@@ -317,7 +498,27 @@ const App: React.FC = () => {
     setShowNutritionModal(true);
   };
 
-  const saveMeal = (finalItems: FoodItem[], finalTitle: string) => {
+  const uploadMealImage = async (file: File, userId: string): Promise<string | null> => {
+      try {
+          const fileExt = file.name.split('.').pop();
+          const fileName = `${userId}/${Date.now()}.${fileExt}`;
+          const { error: uploadError } = await supabase.storage
+              .from('meal_images')
+              .upload(fileName, file);
+          
+          if (uploadError) throw uploadError;
+
+          const { data } = supabase.storage.from('meal_images').getPublicUrl(fileName);
+          return data.publicUrl;
+      } catch (error) {
+          console.error("Upload failed", error);
+          return null;
+      }
+  };
+
+  const saveMeal = async (finalItems: FoodItem[], finalTitle: string) => {
+    if (!session?.user?.id) return;
+    
     const mealTotals = finalItems.reduce((acc, item) => ({
       calories: acc.calories + (Number(item.calories) || 0),
       protein: acc.protein + (Number(item.protein) || 0),
@@ -326,8 +527,29 @@ const App: React.FC = () => {
     }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
     const mealName = finalTitle || (finalItems.length > 0 ? finalItems[0].name : 'Meal');
+    let imageUrl = editingMealId ? meals.find(m => m.id === editingMealId)?.imageUrl : undefined;
+
+    // Handle Image Upload if new image
+    if (pendingImages.length > 0) {
+        const uploadedUrl = await uploadMealImage(pendingImages[0], session.user.id);
+        if (uploadedUrl) imageUrl = uploadedUrl;
+    }
 
     if (editingMealId) {
+      // Update DB
+      const { error } = await supabase.from('meals').update({
+          name: mealName,
+          items: finalItems,
+          total_calories: mealTotals.calories,
+          total_protein: mealTotals.protein,
+          total_carbs: mealTotals.carbs,
+          total_fat: mealTotals.fat,
+          image_url: imageUrl
+      }).eq('id', editingMealId);
+
+      if (error) { alert("Failed to update meal"); return; }
+
+      // Update State
       setMeals(prev => prev.map(m => m.id === editingMealId ? {
         ...m,
         name: mealName,
@@ -335,21 +557,42 @@ const App: React.FC = () => {
         totalCalories: mealTotals.calories,
         totalProtein: mealTotals.protein,
         totalCarbs: mealTotals.carbs,
-        totalFat: mealTotals.fat
+        totalFat: mealTotals.fat,
+        imageUrl: imageUrl
       } : m));
+
     } else {
-      const newMeal: Meal = {
-        id: Date.now().toString(),
+      // Insert DB
+      const newMealData = {
+        user_id: session.user.id,
         date: format(new Date(), 'yyyy-MM-dd'),
         timestamp: Date.now(),
         name: mealName,
         items: finalItems,
-        totalCalories: mealTotals.calories,
-        totalProtein: mealTotals.protein,
-        totalCarbs: mealTotals.carbs,
-        totalFat: mealTotals.fat,
-        imageUrl: pendingImages.length > 0 ? URL.createObjectURL(pendingImages[0]) : undefined
+        total_calories: mealTotals.calories,
+        total_protein: mealTotals.protein,
+        total_carbs: mealTotals.carbs,
+        total_fat: mealTotals.fat,
+        image_url: imageUrl
       };
+
+      const { data, error } = await supabase.from('meals').insert(newMealData).select().single();
+      
+      if (error) { alert("Failed to save meal"); return; }
+
+      const newMeal: Meal = {
+          id: data.id,
+          date: data.date,
+          timestamp: Number(data.timestamp),
+          name: data.name,
+          imageUrl: data.image_url,
+          items: data.items,
+          totalCalories: Number(data.total_calories),
+          totalProtein: Number(data.total_protein),
+          totalCarbs: Number(data.total_carbs),
+          totalFat: Number(data.total_fat)
+      };
+
       setMeals(prev => [newMeal, ...prev]);
       setActiveMealTab(0); 
     }
@@ -364,7 +607,106 @@ const App: React.FC = () => {
     setSuggestedMealName('');
   };
 
-  // --- VIEW RENDERERS (Defined to prevent remounting scroll reset) ---
+  // --- VIEW RENDERERS ---
+
+  const renderAuth = () => (
+      <div className="min-h-screen flex items-center justify-center p-4 relative z-10 safe-top safe-bottom">
+          <div className="w-full max-w-md">
+              <div className="text-center mb-10">
+                  <div className="inline-flex items-center justify-center w-24 h-24 bg-brand-green text-white rounded-[2.5rem] shadow-2xl shadow-brand-green/30 mb-6 transform rotate-3">
+                      <TrendingUp size={48} />
+                  </div>
+                  <h1 className="text-4xl font-black text-gray-900 mb-2 tracking-tight">NuTrack <span className="text-brand-green">AI</span></h1>
+                  <p className="text-gray-500 font-medium">Smart nutrition tracking for your goals.</p>
+              </div>
+
+              {!isSupabaseConfigured && (
+                <div className="mb-6 bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-start gap-3">
+                   <AlertTriangle className="text-amber-500 shrink-0" size={20} />
+                   <div className="text-left">
+                     <h3 className="font-bold text-amber-800 text-sm mb-1">Missing Configuration</h3>
+                     <p className="text-xs text-amber-700 leading-relaxed">
+                       Please set up your <code>.env</code> file with <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> to enable login.
+                     </p>
+                   </div>
+                </div>
+              )}
+
+              <div className="glass-card p-8 rounded-[2.5rem] shadow-2xl space-y-6">
+                 {authMode === 'signin' ? (
+                     <>
+                        <button 
+                            onClick={handleGoogleLogin} 
+                            disabled={authLoading}
+                            className="w-full py-4 bg-white border-2 border-gray-100 hover:border-brand-green/30 hover:bg-gray-50 text-gray-900 font-black rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-[0.98] shadow-sm"
+                        >
+                            <svg className="w-5 h-5" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" /><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" /><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" /><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" /></svg>
+                            Continue with Google
+                        </button>
+                        
+                        <div className="relative py-2">
+                             <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
+                             <div className="relative flex justify-center text-[10px] uppercase font-black"><span className="bg-white px-2 text-gray-400">Or with Phone</span></div>
+                        </div>
+
+                        <form onSubmit={handlePhoneLogin} className="space-y-4">
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 pl-1">Phone Number</label>
+                                <div className="relative">
+                                    <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                                    <input 
+                                        type="tel" 
+                                        placeholder="+1 234 567 8900"
+                                        value={phone}
+                                        onChange={e => setPhone(e.target.value)}
+                                        className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-900 focus:outline-none focus:border-brand-green/50 focus:bg-white transition-all"
+                                        required
+                                    />
+                                </div>
+                            </div>
+                            <button 
+                                type="submit" 
+                                disabled={authLoading}
+                                className="w-full py-4 bg-brand-dark text-white font-black rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-brand-dark/20 uppercase tracking-widest text-xs"
+                            >
+                                {authLoading ? <Loader2 className="animate-spin" size={18}/> : 'Send OTP Code'}
+                            </button>
+                            <p className="text-[10px] text-center text-gray-400 font-medium">Code sent via SMS or WhatsApp if configured.</p>
+                        </form>
+                     </>
+                 ) : (
+                     <form onSubmit={handleVerifyOtp} className="space-y-6">
+                         <div className="text-center">
+                             <h3 className="text-xl font-black text-gray-900">Verify OTP</h3>
+                             <p className="text-sm text-gray-500">Enter code sent to {phone}</p>
+                         </div>
+                         <div>
+                             <input 
+                                 type="text" 
+                                 placeholder="000000"
+                                 value={otp}
+                                 onChange={e => setOtp(e.target.value)}
+                                 className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-black text-center text-2xl tracking-[0.5em] text-gray-900 focus:outline-none focus:border-brand-green focus:bg-white transition-all"
+                                 autoFocus
+                                 required
+                             />
+                         </div>
+                         <button 
+                            type="submit" 
+                            disabled={authLoading}
+                            className="w-full py-4 bg-brand-green text-white font-black rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-brand-green/20 uppercase tracking-widest text-xs"
+                         >
+                            {authLoading ? <Loader2 className="animate-spin" size={18}/> : 'Verify & Login'}
+                         </button>
+                         <button type="button" onClick={() => setAuthMode('signin')} className="w-full text-center text-xs font-bold text-gray-400 hover:text-gray-900">
+                             Back to Login
+                         </button>
+                     </form>
+                 )}
+              </div>
+          </div>
+      </div>
+  );
 
   const renderAchievementCelebration = () => {
     if (!newlyEarnedBadgeId) return null;
@@ -450,11 +792,6 @@ const App: React.FC = () => {
           <button type="submit" className="w-full bg-brand-dark hover:bg-black text-white font-black py-5 rounded-2xl transition-all shadow-xl shadow-brand-dark/20 active:scale-[0.98] uppercase tracking-widest mt-4">
             {user ? 'Update My Plan' : 'Create My Plan'}
           </button>
-          {user && (
-            <button type="button" onClick={() => setView('profile')} className="w-full text-center text-gray-400 font-black uppercase tracking-widest text-[10px] py-2 hover:text-gray-900 transition-colors">
-              Go Back to Profile
-            </button>
-          )}
         </form>
       </div>
     </div>
@@ -490,6 +827,9 @@ const App: React.FC = () => {
               <div className="h-px bg-gray-100 my-2 mx-6"></div>
               <button onClick={() => { setView('profile'); setShowMenu(false); }} className="w-full text-left px-6 py-4 hover:bg-brand-green/10 flex items-center gap-4 text-gray-800 font-bold transition-colors">
                 <Trophy size={20} className="text-brand-green" /> Profile & Badges
+              </button>
+              <button onClick={handleLogout} className="w-full text-left px-6 py-4 hover:bg-red-50 flex items-center gap-4 text-red-500 font-bold transition-colors">
+                <LogOut size={20} /> Sign Out
               </button>
             </div>
           )}
@@ -553,7 +893,9 @@ const App: React.FC = () => {
         </button>
       </div>
 
-      {todayMeals.length === 0 ? (
+      {isLoadingData ? (
+          <div className="py-20 flex justify-center text-brand-green"><Loader2 className="animate-spin" size={32}/></div>
+      ) : todayMeals.length === 0 ? (
         <div className="glass-card rounded-[3rem] p-16 text-center">
             <p className="text-gray-400 font-bold italic">No meals logged yet.</p>
         </div>
@@ -583,9 +925,12 @@ const App: React.FC = () => {
               <MealCard 
                 meal={todayMeals[activeMealTab]} 
                 onEdit={handleEditMeal} 
-                onDelete={(id) => {
-                  setMeals(meals.filter(m => m.id !== id));
-                  setActiveMealTab(0);
+                onDelete={async (id) => {
+                  const { error } = await supabase.from('meals').delete().eq('id', id);
+                  if (!error) {
+                    setMeals(prev => prev.filter(m => m.id !== id));
+                    setActiveMealTab(0);
+                  }
                 }} 
               />
             )}
@@ -596,8 +941,6 @@ const App: React.FC = () => {
   );
 
   const renderHistory = () => {
-    // History needs local state so we use a small helper hook or define state at top.
-    // Since history has its own date logic, we keep it integrated but follow the functional pattern.
     return <HistoryView meals={meals} user={user} handleEditMeal={handleEditMeal} setMeals={setMeals} />
   };
 
@@ -609,7 +952,8 @@ const App: React.FC = () => {
                     <div className="inline-flex items-center justify-center w-24 h-24 bg-brand-green/10 text-brand-green rounded-[2.5rem] mb-6">
                         <User size={48} />
                     </div>
-                    <h2 className="text-3xl font-black text-gray-900 mb-8 tracking-tight">Your Profile</h2>
+                    <h2 className="text-3xl font-black text-gray-900 mb-2 tracking-tight">{user?.name}</h2>
+                    <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-8">{session?.user?.email}</p>
                     <div className="space-y-3">
                         <div className="flex justify-between p-4 bg-white/50 rounded-2xl border border-white">
                             <span className="text-[10px] font-black text-gray-400 uppercase">Goal</span>
@@ -657,10 +1001,15 @@ const App: React.FC = () => {
       </div>
   );
 
+  if (isLoadingAuth) {
+      return <div className="min-h-screen flex items-center justify-center bg-mesh"><Loader2 className="animate-spin text-brand-green" size={48} /></div>;
+  }
+
   return (
     <div className="no-scrollbar min-h-screen">
-      {view !== 'onboarding' && renderNavbar()}
+      {view !== 'auth' && view !== 'onboarding' && renderNavbar()}
       <main className="max-w-5xl mx-auto px-2">
+        {view === 'auth' && renderAuth()}
         {view === 'onboarding' && renderOnboarding()}
         {view === 'dashboard' && renderDashboard()}
         {view === 'history' && renderHistory()}
@@ -814,7 +1163,10 @@ const HistoryView: React.FC<{ meals: Meal[], user: UserProfile | null, handleEdi
                 ) : (
                     <div className="grid gap-4">
                         {mealsForSelectedDate.map((meal) => (
-                            <MealCard key={meal.id} meal={meal} onEdit={handleEditMeal} onDelete={(id) => setMeals(meals.filter(m => m.id !== id))} />
+                            <MealCard key={meal.id} meal={meal} onEdit={handleEditMeal} onDelete={async (id) => {
+                                const { error } = await supabase.from('meals').delete().eq('id', id);
+                                if (!error) setMeals(prev => prev.filter(m => m.id !== id));
+                            }} />
                         ))}
                     </div>
                 )}
