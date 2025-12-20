@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Gender, 
@@ -77,26 +76,22 @@ const App: React.FC = () => {
   const [newlyEarnedBadgeId, setNewlyEarnedBadgeId] = useState<string | null>(null);
   const [sessionEarnedBadges, setSessionEarnedBadges] = useState<Set<string>>(new Set());
 
-  // Achievement Logic - Memoized to prevent unnecessary re-runs
+  // Achievement Logic
   const checkAchievements = useCallback((currentUser: UserProfile, currentMeals: Meal[]) => {
     const existingBadges = new Set(currentUser.earnedBadges || []);
     const earned = new Set(currentUser.earnedBadges || []);
     
-    // 1. Total meal milestones
     if (currentMeals.length >= 1) earned.add('starter');
     if (currentMeals.length >= 50) earned.add('meal_50');
     
-    // 2. Photo & Camera milestones
     const mealsWithPhotos = currentMeals.filter(m => m.imageUrl);
     if (mealsWithPhotos.length >= 10) earned.add('photo_10');
     const mealsWithCamera = currentMeals.filter(m => m.imageUrl && m.imageUrl.startsWith('blob:')); 
     if (mealsWithCamera.length >= 5) earned.add('camera_5');
     
-    // 3. Streak milestones
     if (currentUser.streak >= 7) earned.add('streak_7');
     if (currentUser.streak >= 30) earned.add('streak_30');
     
-    // 4. Calorie Sniper
     const mealsByDate: Record<string, number> = {};
     currentMeals.forEach(m => {
       mealsByDate[m.date] = (mealsByDate[m.date] || 0) + m.totalCalories;
@@ -112,7 +107,6 @@ const App: React.FC = () => {
     if (hasPerfectDay) earned.add('sniper');
 
     if (earned.size !== existingBadges.size) {
-      // Find the new badge(s)
       earned.forEach(id => {
         if (!existingBadges.has(id)) {
           setNewlyEarnedBadgeId(id);
@@ -153,7 +147,7 @@ const App: React.FC = () => {
     } else {
       setView('onboarding');
     }
-  }, [checkAchievements]);
+  }, []);
 
   // Save Data Effect
   useEffect(() => {
@@ -195,12 +189,6 @@ const App: React.FC = () => {
         newLastUpdate = now;
         newLastMeal = now;
       }
-    }
-
-    if (!userData.lastMealTimestamp) {
-      newLastMeal = now;
-      newLastUpdate = now;
-      newStreak = 1;
     }
 
     const updatedUser: UserProfile = { 
@@ -246,19 +234,9 @@ const App: React.FC = () => {
     const gender = formData.get('gender') as Gender;
     const activity = formData.get('activity') as ActivityLevel;
 
-    // Validation
-    if (isNaN(age) || age <= 0 || age > 120) {
-      alert("Please enter a valid age between 1 and 120.");
-      return;
-    }
-    if (isNaN(weight) || weight <= 10 || weight > 600) {
-      alert("Please enter a valid weight between 10kg and 600kg.");
-      return;
-    }
-    if (isNaN(height) || height <= 50 || height > 280) {
-      alert("Please enter a valid height between 50cm and 280cm.");
-      return;
-    }
+    if (isNaN(age) || age <= 0 || age > 120) return alert("Valid age required.");
+    if (isNaN(weight) || weight <= 10 || weight > 600) return alert("Valid weight required.");
+    if (isNaN(height) || height <= 50 || height > 280) return alert("Valid height required.");
 
     const goals = calculateGoals(age, gender, weight, height, activity);
     const now = Date.now();
@@ -293,8 +271,9 @@ const App: React.FC = () => {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      setPendingImages(Array.from(e.target.files));
-      analyzeImages(Array.from(e.target.files));
+      const files = Array.from(e.target.files);
+      setPendingImages(files);
+      analyzeImages(files);
     }
   };
 
@@ -311,7 +290,7 @@ const App: React.FC = () => {
       setSuggestedMealName(data.mealName || '');
       setShowNutritionModal(true);
     } catch (err) {
-      alert("Failed to analyze image. Please check your API configuration.");
+      alert("Failed to analyze image. Please check your connection.");
     } finally {
       setIsAnalyzing(false);
     }
@@ -332,14 +311,7 @@ const App: React.FC = () => {
       fat: acc.fat + (Number(item.fat) || 0),
     }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
-    const generateFallbackName = (items: FoodItem[]) => {
-      if (items.length === 0) return 'Empty Meal';
-      const firstName = items[0].name;
-      if (items.length === 1) return firstName;
-      return `${firstName} + ${items.length - 1} more`;
-    };
-
-    const mealName = finalTitle || generateFallbackName(finalItems);
+    const mealName = finalTitle || (finalItems.length > 0 ? finalItems[0].name : 'Meal');
 
     if (editingMealId) {
       setMeals(prev => prev.map(m => m.id === editingMealId ? {
@@ -383,21 +355,7 @@ const App: React.FC = () => {
     const badge = BADGES_DATA[newlyEarnedBadgeId];
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-brand-dark/95 backdrop-blur-xl animate-fade-in px-4">
-        <div className="relative w-full max-w-sm text-center">
-          {[...Array(20)].map((_, i) => (
-            <div 
-              key={i} 
-              className="particle" 
-              style={{ 
-                left: `${Math.random() * 100}%`, 
-                top: `${Math.random() * 100}%`, 
-                backgroundColor: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#FFFFFF'][Math.floor(Math.random() * 5)],
-                animationDelay: `${Math.random() * 1}s`
-              }} 
-            />
-          ))}
-          <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-48 h-48 bg-brand-green/20 blur-[60px] rounded-full animate-pulse"></div>
-          
+        <div className="relative w-full max-sm text-center">
           <div className="relative z-10 space-y-8">
             <div className={`w-40 h-40 mx-auto rounded-[3rem] ${badge.color} text-white flex items-center justify-center shadow-2xl shadow-brand-green/20 border-4 border-white/20 animate-bounce-slow relative overflow-hidden`}>
               <div className="absolute inset-0 bg-white/10 animate-pulse"></div>
@@ -411,21 +369,20 @@ const App: React.FC = () => {
                 <p className="text-gray-300 font-medium text-lg leading-relaxed">{badge.description}</p>
               </div>
             </div>
-            <button 
-              onClick={() => {
-                setNewlyEarnedBadgeId(null);
-                setView('profile');
-              }}
-              className="w-full py-5 bg-brand-green hover:bg-emerald-600 text-white font-black rounded-3xl transition-all shadow-xl shadow-brand-green/20 transform active:scale-95 uppercase tracking-widest text-lg"
-            >
-              Show Me in Trophy Room
-            </button>
-            <button 
-              onClick={() => setNewlyEarnedBadgeId(null)}
-              className="text-gray-500 font-black uppercase tracking-widest text-xs hover:text-white transition-colors"
-            >
-              Continue Dashboard
-            </button>
+            <div className="space-y-3">
+              <button 
+                onClick={() => { setNewlyEarnedBadgeId(null); setView('profile'); }}
+                className="w-full py-5 bg-brand-green hover:bg-emerald-600 text-white font-black rounded-3xl transition-all shadow-xl shadow-brand-green/20 active:scale-95 uppercase tracking-widest text-lg"
+              >
+                Show Me in Trophy Room
+              </button>
+              <button 
+                onClick={() => setNewlyEarnedBadgeId(null)}
+                className="w-full py-4 bg-white/10 hover:bg-white/20 text-white font-bold rounded-2xl transition-all active:scale-95 uppercase tracking-widest text-sm"
+              >
+                Got it, Continue
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -433,29 +390,20 @@ const App: React.FC = () => {
   };
 
   const OnboardingView = () => (
-    <div className="min-h-screen flex items-center justify-center p-4 animate-fade-in relative z-10">
+    <div className="min-h-screen flex items-center justify-center p-4 animate-fade-in relative z-10 safe-top safe-bottom">
       <div className="w-full max-w-lg">
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-20 h-20 bg-brand-green text-white rounded-3xl shadow-2xl shadow-brand-green/30 mb-6 transform rotate-3">
             <TrendingUp size={40} />
           </div>
-          <h1 className="text-5xl font-black text-gray-900 mb-3 tracking-tight">Your Body, <span className="text-brand-green">Optimized.</span></h1>
-          <p className="text-gray-500 text-lg font-medium">Tell us about yourself to tailor your AI nutrition plan.</p>
+          <h1 className="text-4xl md:text-5xl font-black text-gray-900 mb-3 tracking-tight">Your Body, <span className="text-brand-green">Optimized.</span></h1>
+          <p className="text-gray-500 text-lg font-medium px-4">Tell us about yourself to tailor your AI nutrition plan.</p>
         </div>
-        <form onSubmit={handleOnboardingSubmit} className="space-y-6 glass-card p-10 rounded-[2.5rem] shadow-2xl shadow-gray-200/50">
-          <div className="grid grid-cols-2 gap-6">
+        <form onSubmit={handleOnboardingSubmit} className="space-y-6 glass-card p-6 md:p-10 rounded-[2.5rem] shadow-2xl shadow-gray-200/50">
+          <div className="grid grid-cols-2 gap-4 md:gap-6">
             <div>
               <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Age</label>
-              <input 
-                name="age" 
-                type="number" 
-                required 
-                defaultValue={user?.age || "25"} 
-                min="1" 
-                max="120" 
-                onKeyDown={(e) => { if (e.key === '-' || e.key === 'e') e.preventDefault(); }}
-                className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none transition font-bold" 
-              />
+              <input name="age" type="number" required defaultValue={user?.age || "25"} min="1" max="120" className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none transition font-bold" />
             </div>
             <div>
               <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Gender</label>
@@ -465,43 +413,25 @@ const App: React.FC = () => {
               </select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-2 gap-4 md:gap-6">
             <div>
               <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Weight (kg)</label>
-              <input 
-                name="weight" 
-                type="number" 
-                required 
-                defaultValue={user?.weight || "70"} 
-                min="10" 
-                max="600" 
-                onKeyDown={(e) => { if (e.key === '-' || e.key === 'e') e.preventDefault(); }}
-                className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold" 
-              />
+              <input name="weight" type="number" required defaultValue={user?.weight || "70"} className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold" />
             </div>
             <div>
               <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Height (cm)</label>
-              <input 
-                name="height" 
-                type="number" 
-                required 
-                defaultValue={user?.height || "175"} 
-                min="50" 
-                max="280" 
-                onKeyDown={(e) => { if (e.key === '-' || e.key === 'e') e.preventDefault(); }}
-                className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold" 
-              />
+              <input name="height" type="number" required defaultValue={user?.height || "175"} className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold" />
             </div>
           </div>
           <div>
             <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Activity Level</label>
             <select name="activity" defaultValue={user?.activityLevel || ActivityLevel.MODERATE} className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold">
               {Object.values(ActivityLevel).map(level => (
-                <option key={level} value={level}>{level}</option>
+                <option key={level} value={level}>{level.split(' (')[0]}</option>
               ))}
             </select>
           </div>
-          <button type="submit" className="w-full bg-brand-dark hover:bg-black text-white font-black py-5 rounded-2xl transition-all shadow-xl shadow-brand-dark/20 transform active:scale-[0.98] uppercase tracking-widest mt-4">
+          <button type="submit" className="w-full bg-brand-dark hover:bg-black text-white font-black py-5 rounded-2xl transition-all shadow-xl shadow-brand-dark/20 active:scale-[0.98] uppercase tracking-widest mt-4">
             {user ? 'Update My Plan' : 'Create My Plan'}
           </button>
           {user && (
@@ -515,12 +445,12 @@ const App: React.FC = () => {
   );
 
   const Navbar = () => (
-    <header className="sticky top-0 z-40 w-full bg-white/60 backdrop-blur-xl border-b border-white/40 shadow-sm">
+    <header className="sticky top-0 z-40 w-full bg-white/70 backdrop-blur-xl border-b border-white/40 shadow-sm safe-top">
       <div className="max-w-5xl mx-auto flex justify-between items-center py-4 px-6">
         <div className="flex items-center gap-2">
            {user && (
-             <div className="bg-white/80 text-orange-600 px-4 py-1.5 rounded-xl text-xs font-black flex items-center gap-2 shadow-sm border border-white/50">
-               <Flame size={16} fill="currentColor" /> {user.streak} DAY STREAK
+             <div className="bg-white/80 text-orange-600 px-3 py-1.5 rounded-xl text-[10px] font-black flex items-center gap-2 shadow-sm border border-white/50">
+               <Flame size={14} fill="currentColor" /> {user.streak}
              </div>
            )}
         </div>
@@ -530,7 +460,7 @@ const App: React.FC = () => {
           </h1>
         </div>
         <div className="relative">
-          <button onClick={() => setShowMenu(!showMenu)} className="p-2.5 bg-white/80 hover:bg-white rounded-xl transition shadow-sm border border-white/50">
+          <button onClick={() => setShowMenu(!showMenu)} className="p-2.5 bg-white/80 hover:bg-white active:scale-95 rounded-xl transition shadow-sm border border-white/50">
             <Menu size={20} className="text-gray-900" />
           </button>
           {showMenu && (
@@ -553,87 +483,75 @@ const App: React.FC = () => {
   );
 
   const DashboardView = () => (
-    <div className="pb-24 animate-fade-in relative z-10 pt-4">
-      <div className="relative mb-10 group">
-        <div className="absolute -top-12 -left-12 w-64 h-64 bg-brand-green/30 blur-[120px] rounded-full z-0 group-hover:scale-125 transition-transform duration-1000 animate-pulse"></div>
-        <div className="absolute -bottom-12 -right-12 w-64 h-64 bg-blue-400/20 blur-[120px] rounded-full z-0 group-hover:scale-125 transition-transform duration-1000 animate-pulse" style={{ animationDelay: '1s' }}></div>
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-pink-300/10 blur-[140px] rounded-full z-0 pointer-events-none"></div>
-        
-        <div className="glass-card rounded-[3rem] p-10 shadow-2xl shadow-gray-200/50 mb-10 border-white/60 relative z-10 overflow-hidden">
+    <div className="pb-24 safe-bottom animate-fade-in relative z-10 pt-4 px-2">
+      <div className="relative mb-8">
+        <div className="glass-card rounded-[3rem] p-6 md:p-10 shadow-2xl shadow-gray-200/50 border-white/60 relative z-10 overflow-hidden">
           <div className="flex justify-between items-center mb-10">
             <div>
-              <h2 className="text-3xl font-black text-gray-900 mb-1">Daily Overview</h2>
-              <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">Targeting your 24h nutrition goals</p>
+              <h2 className="text-2xl md:text-3xl font-black text-gray-900 mb-1">Overview</h2>
+              <p className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Targeting 24h nutrition</p>
             </div>
             {user?.earnedBadges && user.earnedBadges.length > 0 && (
-                <div onClick={() => setView('profile')} className="cursor-pointer flex items-center gap-2 bg-brand-green/10 text-brand-green px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest">
-                  <Award size={16} /> {user.earnedBadges.length} Achievement{user.earnedBadges.length > 1 ? 's' : ''}
+                <div onClick={() => setView('profile')} className="cursor-pointer flex items-center gap-2 bg-brand-green/10 text-brand-green px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest active:scale-95">
+                  <Award size={14} /> {user.earnedBadges.length} Badges
                 </div>
             )}
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-8">
-            <CircularProgress value={totals.calories} max={user?.goals.calories || 2000} color="#10B981" label="Calories" subLabel="kcal" size={110} />
-            <CircularProgress value={totals.protein} max={user?.goals.protein || 150} color="#3B82F6" label="Protein" subLabel="g" size={110} />
-            <CircularProgress value={totals.carbs} max={user?.goals.carbs || 250} color="#F59E0B" label="Carbs" subLabel="g" size={110} />
-            <CircularProgress value={totals.fat} max={user?.goals.fat || 70} color="#EF4444" label="Fat" subLabel="g" size={110} />
+            <CircularProgress value={totals.calories} max={user?.goals.calories || 2000} color="#10B981" label="Calories" subLabel="kcal" size={100} />
+            <CircularProgress value={totals.protein} max={user?.goals.protein || 150} color="#3B82F6" label="Protein" subLabel="g" size={100} />
+            <CircularProgress value={totals.carbs} max={user?.goals.carbs || 250} color="#F59E0B" label="Carbs" subLabel="g" size={100} />
+            <CircularProgress value={totals.fat} max={user?.goals.fat || 70} color="#EF4444" label="Fat" subLabel="g" size={100} />
           </div>
         </div>
       </div>
       
-      <div className="glass-card rounded-[3rem] p-12 text-center mb-10 relative overflow-hidden transition-all border-2 border-dashed border-brand-green/30 group hover:bg-white/90">
+      <div className="glass-card rounded-[3rem] p-8 text-center mb-8 relative overflow-hidden border-2 border-dashed border-brand-green/30 group bg-white/50 active:bg-white/90 transition-all">
         {isAnalyzing && (
             <div className="absolute inset-0 bg-white/95 z-10 flex items-center justify-center backdrop-blur-md">
                 <div className="flex flex-col items-center">
-                    <div className="relative w-24 h-24 mb-6">
-                      <div className="absolute inset-0 border-[6px] border-brand-green/10 rounded-full"></div>
-                      <div className="absolute inset-0 border-[6px] border-brand-green border-t-transparent rounded-full animate-spin"></div>
+                    <div className="relative w-16 h-16 mb-4">
+                      <div className="absolute inset-0 border-[4px] border-brand-green/10 rounded-full"></div>
+                      <div className="absolute inset-0 border-[4px] border-brand-green border-t-transparent rounded-full animate-spin"></div>
                     </div>
-                    <p className="font-black text-brand-green text-2xl tracking-tight uppercase">AI Analyzing...</p>
+                    <p className="font-black text-brand-green text-lg tracking-tight uppercase">AI Analyzing...</p>
                 </div>
             </div>
         )}
-        <div className="mb-8 flex justify-center">
-            <div className="w-24 h-24 bg-brand-green/5 rounded-[2rem] flex items-center justify-center text-brand-green group-hover:scale-110 transition-transform duration-500">
-                <Camera size={48} strokeWidth={1.5} />
-            </div>
-        </div>
-        <h3 className="text-gray-900 font-black text-3xl mb-3 tracking-tight">Log a New Meal</h3>
-        <div className="flex justify-center gap-6 flex-wrap">
-            <label className="cursor-pointer bg-brand-green hover:bg-emerald-600 text-white px-10 py-5 rounded-[2rem] font-black flex items-center gap-3 transition-all shadow-xl shadow-brand-green/20 transform active:scale-95 text-lg">
-                <Upload size={24} /> UPLOAD
+        <h3 className="text-gray-900 font-black text-2xl mb-6 tracking-tight">Log a New Meal</h3>
+        <div className="flex justify-center gap-4 flex-wrap">
+            <label className="cursor-pointer bg-brand-green hover:bg-emerald-600 active:scale-95 text-white px-6 py-4 rounded-[2rem] font-black flex items-center gap-2 transition-all shadow-xl shadow-brand-green/20 text-sm uppercase tracking-widest">
+                <Upload size={20} /> UPLOAD
                 <input type="file" multiple accept="image/*" onChange={handleFileChange} className="hidden" />
             </label>
-            <button onClick={() => setShowCamera(true)} className="bg-brand-dark hover:bg-black text-white px-10 py-5 rounded-[2rem] font-black flex items-center gap-3 transition-all shadow-xl shadow-brand-dark/20 transform active:scale-95 text-lg">
-                <Camera size={24} /> CAMERA
+            <button onClick={() => setShowCamera(true)} className="bg-brand-dark hover:bg-black active:scale-95 text-white px-6 py-4 rounded-[2rem] font-black flex items-center gap-2 transition-all shadow-xl shadow-brand-dark/20 text-sm uppercase tracking-widest">
+                <Camera size={20} /> CAMERA
             </button>
         </div>
       </div>
 
       <div className="flex justify-between items-end mb-4 px-2">
-        <div>
-          <h2 className="text-3xl font-black text-gray-900 tracking-tight">Today's Meals</h2>
-        </div>
-        <button onClick={() => { setEditingMealId(null); setSuggestedMealName('Manual Entry'); setCurrentAnalysis([]); setShowNutritionModal(true); }} className="bg-white/80 backdrop-blur-md border border-brand-green/20 text-brand-green px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-green hover:text-white transition-all shadow-sm">
-            + Manual Add
+        <h2 className="text-2xl font-black text-gray-900 tracking-tight">Today</h2>
+        <button onClick={() => { setEditingMealId(null); setSuggestedMealName('Manual Entry'); setCurrentAnalysis([]); setShowNutritionModal(true); }} className="bg-white/80 active:scale-95 border border-brand-green/20 text-brand-green px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-sm">
+            + Manual
         </button>
       </div>
 
       {todayMeals.length === 0 ? (
-        <div className="glass-card rounded-[3rem] p-24 text-center">
-            <p className="text-gray-900 font-black text-2xl mb-2">Feeling Hungry?</p>
-            <p className="text-gray-400 text-lg font-medium">Capture your first meal to start tracking today.</p>
+        <div className="glass-card rounded-[3rem] p-16 text-center">
+            <p className="text-gray-400 font-bold italic">No meals logged yet.</p>
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="flex flex-wrap gap-2 px-2 overflow-x-auto no-scrollbar py-2">
+          <div className="flex gap-2 overflow-x-auto no-scrollbar py-2">
              {todayMeals.map((meal, idx) => (
                 <button 
                   key={meal.id}
                   onClick={() => setActiveMealTab(idx)}
-                  className={`px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap border ${
+                  className={`px-6 py-3 rounded-2xl font-black text-[9px] uppercase tracking-widest transition-all whitespace-nowrap border ${
                     activeMealTab === idx 
-                      ? 'bg-brand-green text-white border-brand-green shadow-lg shadow-brand-green/20 scale-105' 
-                      : 'bg-white/60 text-gray-400 border-white/50 hover:bg-white'
+                      ? 'bg-brand-green text-white border-brand-green shadow-lg' 
+                      : 'bg-white/60 text-gray-400 border-white/50'
                   }`}
                 >
                   {meal.name}
@@ -679,37 +597,32 @@ const App: React.FC = () => {
         const selectedStr = format(selectedDate, 'yyyy-MM-dd');
         return meals.filter(m => m.date === selectedStr).sort((a, b) => b.timestamp - a.timestamp);
     }, [meals, selectedDate]);
+
+    const dailyHistoryTotals = useMemo(() => {
+        return mealsForSelectedDate.reduce((acc, meal) => ({
+            calories: acc.calories + meal.totalCalories,
+            protein: acc.protein + meal.totalProtein,
+            carbs: acc.carbs + meal.totalCarbs,
+            fat: acc.fat + meal.totalFat,
+        }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+    }, [mealsForSelectedDate]);
     
     return (
-        <div className="pb-24 min-h-screen animate-fade-in relative z-10 pt-4">
-             <div className="glass-card rounded-[3rem] p-10 shadow-2xl mb-8">
-                 <div className="flex justify-between items-center mb-10 flex-wrap gap-6">
-                     <h2 className="text-3xl font-black flex items-center gap-4">
-                        <CalendarIcon size={32} className="text-brand-green" /> Journey Map
+        <div className="pb-24 safe-bottom animate-fade-in relative z-10 pt-4 px-2">
+             <div className="glass-card rounded-[3rem] p-6 md:p-10 shadow-2xl mb-8">
+                 <div className="flex flex-col md:flex-row justify-between items-center mb-10 gap-6">
+                     <h2 className="text-2xl md:text-3xl font-black flex items-center gap-3">
+                        <CalendarIcon size={28} className="text-brand-green" /> History
                      </h2>
-                     <div className="flex items-center gap-4 flex-wrap">
-                        {!isSameDay(selectedDate, new Date()) && (
-                          <button 
-                            onClick={() => {
-                              const today = new Date();
-                              setCurrentMonth(today);
-                              setSelectedDate(today);
-                            }}
-                            className="text-brand-green hover:text-emerald-700 font-black text-[10px] uppercase tracking-widest transition-colors flex items-center gap-2"
-                          >
-                            <Zap size={14} fill="currentColor" /> Jump to Today
-                          </button>
-                        )}
-                        <div className="flex items-center gap-3 bg-white/50 rounded-2xl p-2 border border-white shadow-sm">
-                           <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-3 hover:bg-white rounded-xl shadow-sm transition"><ChevronLeft size={20}/></button>
-                           <span className="font-black w-44 text-center text-sm uppercase tracking-widest">{format(currentMonth, 'MMMM yyyy')}</span>
-                           <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-3 hover:bg-white rounded-xl shadow-sm transition"><ChevronRight size={20}/></button>
-                        </div>
+                     <div className="flex items-center gap-2 bg-white/50 rounded-2xl p-1 border border-white">
+                        <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 active:bg-white rounded-xl transition"><ChevronLeft size={18}/></button>
+                        <span className="font-black w-32 text-center text-[10px] uppercase tracking-widest">{format(currentMonth, 'MMM yyyy')}</span>
+                        <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 active:bg-white rounded-xl transition"><ChevronRight size={18}/></button>
                      </div>
                  </div>
-                 <div className="grid grid-cols-7 gap-4">
-                     {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                       <div key={d} className="text-center text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">{d}</div>
+                 <div className="grid grid-cols-7 gap-2 md:gap-4">
+                     {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => (
+                       <div key={d} className="text-center text-[9px] font-black text-gray-400 uppercase tracking-widest">{d}</div>
                      ))}
                      {daysInMonth.map((day, i) => {
                          const status = getDayStatus(day);
@@ -717,19 +630,19 @@ const App: React.FC = () => {
                          const isSelected = isSameDay(day, selectedDate);
                          const isToday = isSameDay(day, new Date());
                          
-                         let bgClass = "bg-white/30 hover:bg-white/60 border border-white/40";
-                         let textClass = isSelectedMonth ? "text-gray-900 font-black" : "text-gray-200";
+                         let bgClass = "bg-white/30 active:bg-white/60 border border-white/40";
+                         let textClass = isSelectedMonth ? "text-gray-900 font-bold" : "text-gray-200";
                          
-                         if (status === 'met') { bgClass = "bg-brand-green text-white border-transparent"; textClass = "text-white font-black"; }
-                         else if (status === 'partial') { bgClass = "bg-orange-100 border-orange-200/50"; textClass = "text-orange-700 font-black"; }
+                         if (status === 'met') { bgClass = "bg-brand-green text-white"; textClass = "text-white"; }
+                         else if (status === 'partial') { bgClass = "bg-orange-100 border-orange-200"; textClass = "text-orange-700"; }
                          
                          return (
                              <button 
                                 key={i} 
                                 onClick={() => setSelectedDate(day)}
-                                className={`aspect-square w-full max-w-[60px] mx-auto rounded-2xl flex items-center justify-center text-base transition-all duration-300 relative group
+                                className={`aspect-square w-full rounded-xl flex items-center justify-center text-sm transition-all relative
                                     ${bgClass} ${textClass}
-                                    ${isSelected ? 'ring-4 ring-brand-green ring-offset-2 scale-110 z-10 shadow-xl' : 'hover:scale-105'}
+                                    ${isSelected ? 'ring-2 ring-brand-green ring-offset-2 scale-110 z-10' : ''}
                                 `}
                              >
                                  {format(day, 'd')}
@@ -742,20 +655,44 @@ const App: React.FC = () => {
 
              <div className="space-y-6">
                 <div className="flex justify-between items-center px-4">
-                    <h3 className="text-2xl font-black text-gray-900 flex items-center gap-3">
-                        <Clock className="text-brand-green" /> {isSameDay(selectedDate, new Date()) ? "Today's Log" : format(selectedDate, 'MMM do, yyyy')}
-                    </h3>
-                    <div className="bg-white/60 px-4 py-2 rounded-2xl border border-white text-xs font-black uppercase tracking-widest text-gray-400">
-                        {mealsForSelectedDate.length} {mealsForSelectedDate.length === 1 ? 'Meal' : 'Meals'}
-                    </div>
+                  <h3 className="text-xl font-black text-gray-900">
+                      {format(selectedDate, 'MMM do')} Log
+                  </h3>
                 </div>
 
+                {mealsForSelectedDate.length > 0 && (
+                  <div className="glass-card rounded-[2rem] p-6 mx-2 border-brand-green/20 border flex flex-col gap-4 animate-fade-in shadow-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                       <Zap size={16} className="text-brand-green" />
+                       <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Daily Nutrition Summary</span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 text-center">
+                      <div className="p-2 rounded-2xl bg-brand-green/5 border border-brand-green/10">
+                         <span className="block text-[8px] font-black text-brand-green uppercase mb-1">Calories</span>
+                         <span className="font-black text-lg text-brand-green">{Math.round(dailyHistoryTotals.calories)}</span>
+                      </div>
+                      <div className="p-2 rounded-2xl bg-blue-50/50 border border-blue-100/50">
+                         <span className="block text-[8px] font-black text-blue-600 uppercase mb-1">Protein</span>
+                         <span className="font-black text-lg text-blue-700">{Math.round(dailyHistoryTotals.protein)}g</span>
+                      </div>
+                      <div className="p-2 rounded-2xl bg-amber-50/50 border border-amber-100/50">
+                         <span className="block text-[8px] font-black text-amber-600 uppercase mb-1">Carbs</span>
+                         <span className="font-black text-lg text-amber-700">{Math.round(dailyHistoryTotals.carbs)}g</span>
+                      </div>
+                      <div className="p-2 rounded-2xl bg-rose-50/50 border border-rose-100/50">
+                         <span className="block text-[8px] font-black text-rose-600 uppercase mb-1">Fat</span>
+                         <span className="font-black text-lg text-rose-700">{Math.round(dailyHistoryTotals.fat)}g</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {mealsForSelectedDate.length === 0 ? (
-                    <div className="glass-card rounded-[3rem] p-16 text-center border-white/60">
-                        <p className="text-gray-400 font-bold italic">No meals recorded for this day.</p>
+                    <div className="glass-card rounded-[3rem] p-12 text-center border-white/60">
+                        <p className="text-gray-400 font-bold italic">No logs.</p>
                     </div>
                 ) : (
-                    <div className="grid gap-6">
+                    <div className="grid gap-4">
                         {mealsForSelectedDate.map((meal) => (
                             <MealCard key={meal.id} meal={meal} onEdit={handleEditMeal} onDelete={(id) => setMeals(meals.filter(m => m.id !== id))} />
                         ))}
@@ -767,106 +704,54 @@ const App: React.FC = () => {
   };
 
   const ProfileView = () => (
-      <div className="pb-24 min-h-screen animate-fade-in relative z-10 pt-4">
+      <div className="pb-24 safe-bottom animate-fade-in relative z-10 pt-4 px-2">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-1 space-y-8">
+            <div className="lg:col-span-1 space-y-6">
                 <div className="glass-card rounded-[3rem] p-10 shadow-2xl text-center relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-24 h-24 bg-brand-green/10 blur-3xl -mr-10 -mt-10"></div>
-                    <div className="inline-flex items-center justify-center w-24 h-24 bg-brand-green/10 text-brand-green rounded-[2.5rem] mb-6 border border-brand-green/20">
+                    <div className="inline-flex items-center justify-center w-24 h-24 bg-brand-green/10 text-brand-green rounded-[2.5rem] mb-6">
                         <User size={48} />
                     </div>
-                    <h2 className="text-3xl font-black text-gray-900 mb-1">Health Profile</h2>
-                    <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-8">Logged in as {user?.name}</p>
-                    <div className="space-y-4">
+                    <h2 className="text-3xl font-black text-gray-900 mb-8 tracking-tight">Your Profile</h2>
+                    <div className="space-y-3">
                         <div className="flex justify-between p-4 bg-white/50 rounded-2xl border border-white">
-                            <span className="text-xs font-black text-gray-400 uppercase">Weight</span>
-                            <span className="font-black text-gray-900">{user?.weight} kg</span>
-                        </div>
-                        <div className="flex justify-between p-4 bg-white/50 rounded-2xl border border-white">
-                            <span className="text-xs font-black text-gray-400 uppercase">Height</span>
-                            <span className="font-black text-gray-900">{user?.height} cm</span>
-                        </div>
-                        <div className="flex justify-between p-4 bg-white/50 rounded-2xl border border-white">
-                            <span className="text-xs font-black text-gray-400 uppercase">Age</span>
-                            <span className="font-black text-gray-900">{user?.age} yrs</span>
+                            <span className="text-[10px] font-black text-gray-400 uppercase">Goal</span>
+                            <span className="font-black text-gray-900">{user?.goals.calories} kcal</span>
                         </div>
                         <div className="flex justify-between p-4 bg-brand-green text-white rounded-2xl shadow-lg shadow-brand-green/20">
-                            <span className="text-xs font-black uppercase">Daily Goal</span>
-                            <span className="font-black">{user?.goals.calories} kcal</span>
+                            <span className="text-[10px] font-black uppercase">Streak</span>
+                            <span className="font-black">{user?.streak} Days</span>
                         </div>
                     </div>
-                    <button onClick={() => setView('onboarding')} className="w-full mt-10 py-4 bg-gray-100/50 hover:bg-gray-100 text-gray-400 hover:text-gray-900 rounded-2xl font-black text-[11px] uppercase tracking-widest transition flex items-center justify-center gap-2">
+                    <button onClick={() => setView('onboarding')} className="w-full mt-8 py-4 bg-gray-100/50 hover:bg-gray-100 active:scale-95 text-gray-900 rounded-2xl font-black text-[11px] uppercase tracking-widest transition flex items-center justify-center gap-2">
                         <Settings size={16} /> Edit Profile
                     </button>
                 </div>
-                <div className="glass-card rounded-[3rem] p-10 shadow-2xl bg-brand-dark text-white">
-                    <h3 className="text-2xl font-black mb-6 flex items-center gap-3">
-                        <Star className="text-yellow-400" fill="currentColor" /> Stats
-                    </h3>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="text-center p-4 bg-white/5 rounded-2xl border border-white/10">
-                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Streak</span>
-                            <span className="text-3xl font-black">{user?.streak}</span>
-                        </div>
-                        <div className="text-center p-4 bg-white/5 rounded-2xl border border-white/10">
-                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Total Meals</span>
-                            <span className="text-3xl font-black">{meals.length}</span>
-                        </div>
-                    </div>
-                </div>
             </div>
             <div className="lg:col-span-2">
-                <div className="glass-card rounded-[3rem] p-10 shadow-2xl min-h-full border-white/60">
+                <div className="glass-card rounded-[3rem] p-6 md:p-10 shadow-2xl min-h-full">
                     <div className="flex justify-between items-center mb-10">
-                        <div>
-                            <h2 className="text-4xl font-black text-gray-900 tracking-tight flex items-center gap-4">
-                                <Trophy className="text-yellow-500" size={36} /> Trophy Room
-                            </h2>
-                            <p className="text-xs font-black text-gray-400 uppercase tracking-widest mt-1">Unlock badges through healthy habits</p>
-                        </div>
-                        <div className="bg-brand-green/10 text-brand-green px-5 py-2.5 rounded-2xl font-black text-xs">
-                            {user?.earnedBadges?.length || 0} / {Object.keys(BADGES_DATA).length} EARNED
+                        <h2 className="text-3xl font-black text-gray-900 tracking-tight flex items-center gap-4">
+                            <Trophy className="text-yellow-500" size={32} /> Badges
+                        </h2>
+                        <div className="bg-brand-green/10 text-brand-green px-4 py-2 rounded-2xl font-black text-[10px]">
+                            {user?.earnedBadges?.length || 0} EARNED
                         </div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {Object.entries(BADGES_DATA).map(([id, data]) => {
                             const isEarned = user?.earnedBadges?.includes(id);
-                            const isNewInSession = sessionEarnedBadges.has(id);
-                            
                             return (
-                                <div 
-                                  key={id} 
-                                  className={`p-6 rounded-[2.5rem] border-2 transition-all duration-500 flex items-center gap-6 relative overflow-hidden ${
-                                    isEarned 
-                                      ? `border-brand-green bg-white shadow-xl scale-105 ${isNewInSession ? 'new-badge-glow ring-4 ring-brand-green/20' : ''}` 
-                                      : 'border-dashed border-gray-200 opacity-60 grayscale'
-                                  }`}
-                                >
-                                    {isNewInSession && (
-                                      <>
-                                        <div className="sparkle top-2 left-2"></div>
-                                        <div className="sparkle bottom-4 right-6" style={{ animationDelay: '0.7s' }}></div>
-                                        <div className="absolute top-2 right-4 bg-brand-green text-white text-[8px] font-black px-2 py-0.5 rounded-full animate-pulse uppercase">NEW</div>
-                                      </>
-                                    )}
-                                    <div className={`w-20 h-20 rounded-3xl flex items-center justify-center text-white shadow-lg ${isEarned ? data.color : 'bg-gray-100 text-gray-400'}`}>
-                                        {React.cloneElement(data.icon as React.ReactElement<{ size?: number }>, { size: 36 })}
+                                <div key={id} className={`p-5 rounded-[2.5rem] border-2 transition-all flex items-center gap-4 ${isEarned ? `border-brand-green bg-white shadow-xl` : 'border-dashed border-gray-200 opacity-50 grayscale'}`}>
+                                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-md ${isEarned ? data.color : 'bg-gray-100 text-gray-400'}`}>
+                                        {React.cloneElement(data.icon as React.ReactElement<{ size?: number }>, { size: 28 })}
                                     </div>
                                     <div className="flex-1">
-                                        <h4 className={`font-black text-xl tracking-tight mb-1 ${isEarned ? 'text-gray-900' : 'text-gray-400'}`}>{data.name}</h4>
-                                        <p className="text-xs text-gray-500 font-medium leading-relaxed">{data.description}</p>
-                                        {isEarned && (
-                                            <div className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-black text-brand-green uppercase tracking-widest">
-                                                <CheckCircle size={12} /> Unlocked
-                                            </div>
-                                        )}
+                                        <h4 className={`font-black text-lg tracking-tight ${isEarned ? 'text-gray-900' : 'text-gray-400'}`}>{data.name}</h4>
+                                        <p className="text-[10px] text-gray-500 font-medium">{data.description}</p>
                                     </div>
                                 </div>
                             );
                         })}
-                    </div>
-                    <div className="mt-12 p-8 bg-gray-50/50 rounded-[2rem] border border-dashed border-gray-200 text-center">
-                        <p className="text-gray-400 text-xs font-bold uppercase tracking-widest">More milestones coming soon...</p>
                     </div>
                 </div>
             </div>
@@ -877,7 +762,7 @@ const App: React.FC = () => {
   return (
     <div className="no-scrollbar min-h-screen">
       {view !== 'onboarding' && <Navbar />}
-      <main className="max-w-5xl mx-auto px-4">
+      <main className="max-w-5xl mx-auto px-2">
         {view === 'onboarding' && <OnboardingView />}
         {view === 'dashboard' && <DashboardView />}
         {view === 'history' && <MealHistoryView />}
@@ -897,58 +782,26 @@ const App: React.FC = () => {
   );
 };
 
-// Reusable Meal Card Component
 const MealCard: React.FC<{ meal: Meal; onEdit: (meal: Meal) => void; onDelete: (id: string) => void }> = ({ meal, onEdit, onDelete }) => (
-    <div className="glass-card p-8 rounded-[2.5rem] shadow-xl hover:scale-[1.01] transition-all duration-300 group">
-        <div className="flex justify-between items-start mb-8">
-            <div className="flex items-center gap-6">
-                 {meal.imageUrl && (
-                     <div className="relative">
-                         <img src={meal.imageUrl} alt={meal.name} className="w-28 h-28 rounded-3xl object-cover shadow-2xl ring-4 ring-white" />
-                     </div>
-                 )}
-                 <div className="flex-1">
-                     <h4 className="font-black text-gray-900 text-2xl tracking-tight mb-1 truncate max-w-[200px] md:max-w-md">{meal.name}</h4>
-                     <p className="text-xs text-gray-400 font-black uppercase tracking-widest flex items-center gap-2">
-                         <Clock size={14} className="text-brand-green" /> {format(meal.timestamp, 'h:mm a')}
-                     </p>
+    <div className="glass-card p-6 md:p-8 rounded-[2.5rem] shadow-xl active:scale-[0.99] transition-all duration-300">
+        <div className="flex justify-between items-start mb-6">
+            <div className="flex items-center gap-4 md:gap-6">
+                 {meal.imageUrl && <img src={meal.imageUrl} alt="" className="w-20 h-20 md:w-24 md:h-24 rounded-3xl object-cover shadow-lg ring-2 ring-white" />}
+                 <div>
+                     <h4 className="font-black text-gray-900 text-xl md:text-2xl tracking-tight mb-1 truncate max-w-[120px] md:max-w-md">{meal.name}</h4>
+                     <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest flex items-center gap-2"><Clock size={12}/> {format(meal.timestamp, 'h:mm a')}</p>
                  </div>
             </div>
-            <div className="flex gap-2">
-                <button className="p-3 text-gray-300 hover:text-brand-green hover:bg-emerald-50 rounded-2xl transition-all" onClick={() => onEdit(meal)}>
-                    <Pencil size={20} />
-                </button>
-                <button className="p-3 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all" onClick={() => onDelete(meal.id)}>
-                    <X size={24} />
-                </button>
+            <div className="flex gap-1">
+                <button className="p-2 text-gray-300 active:text-brand-green" onClick={() => onEdit(meal)}><Pencil size={18} /></button>
+                <button className="p-2 text-gray-300 active:text-red-500" onClick={() => onDelete(meal.id)}><X size={20} /></button>
             </div>
         </div>
-        <div className="grid grid-cols-4 gap-4 bg-white/40 p-6 rounded-3xl border border-white/50">
-            <div className="text-center">
-                <span className="block text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Calories</span>
-                <span className="font-black text-brand-green text-2xl">{Math.round(meal.totalCalories)}</span>
-            </div>
-            <div className="text-center border-l border-gray-100">
-                <span className="block text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Protein</span>
-                <span className="font-black text-gray-900 text-2xl">{Math.round(meal.totalProtein)}g</span>
-            </div>
-            <div className="text-center border-l border-gray-100">
-                <span className="block text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Carbs</span>
-                <span className="font-black text-gray-900 text-2xl">{Math.round(meal.totalCarbs)}g</span>
-            </div>
-            <div className="text-center border-l border-gray-100">
-                <span className="block text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Fat</span>
-                <span className="font-black text-gray-900 text-2xl">{Math.round(meal.totalFat)}g</span>
-            </div>
-        </div>
-        <div className="mt-6 pt-6 border-t border-dashed border-gray-200">
-             <div className="flex flex-wrap gap-3">
-                {meal.items.map((item, idx) => (
-                    <span key={idx} className="bg-white/80 text-gray-600 text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl border border-white/50 shadow-sm">
-                        {item.name} <span className="text-brand-green ml-1">{Math.round(item.calories)} CAL</span>
-                    </span>
-                ))}
-             </div>
+        <div className="grid grid-cols-4 gap-2 bg-white/40 p-4 rounded-3xl border border-white/50 text-center">
+            <div><span className="block text-[8px] text-gray-400 font-black uppercase tracking-widest">Kcal</span><span className="font-black text-brand-green text-lg">{Math.round(meal.totalCalories)}</span></div>
+            <div><span className="block text-[8px] text-gray-400 font-black uppercase tracking-widest">P</span><span className="font-black text-gray-900 text-lg">{Math.round(meal.totalProtein)}g</span></div>
+            <div><span className="block text-[8px] text-gray-400 font-black uppercase tracking-widest">C</span><span className="font-black text-gray-900 text-lg">{Math.round(meal.totalCarbs)}g</span></div>
+            <div><span className="block text-[8px] text-gray-400 font-black uppercase tracking-widest">F</span><span className="font-black text-gray-900 text-lg">{Math.round(meal.totalFat)}g</span></div>
         </div>
     </div>
 );

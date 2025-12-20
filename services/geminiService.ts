@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 
 export const fileToGenerativePart = async (file: File): Promise<{ inlineData: { data: string; mimeType: string } }> => {
@@ -25,24 +24,19 @@ export const analyzeMealImage = async (files: File[]): Promise<any> => {
   const imageParts = await Promise.all(files.map(file => fileToGenerativePart(file)));
 
   const prompt = `
-    As an expert culinary nutritionist specialized in Pan-Asian cuisine, analyze these food images with high precision.
+    As an expert culinary nutritionist specialized in Pan-Asian cuisine, analyze these food images.
     
-    1. Identify specific regional dishes from Malay (e.g., Nasi Lemak, Rendang), Indian (e.g., Biryani, Paneer Tikka), Chinese (e.g., Dim Sum, Char Kway Teow), Thai (e.g., Tom Yum, Pad Thai), or Vietnamese (e.g., Pho, Banh Mi) cuisines.
-    2. Pay close attention to hidden ingredients:
-       - Coconut milk/cream in curries and desserts.
-       - Palm oil or ghee used in frying or sautéing.
-       - Sugar content in sauces (especially Thai and Vietnamese).
-       - Sodium levels in fermented pastes (Belacan, Miso, Fish Sauce).
-    3. Estimate nutritional content per serving shown. Be conservative with calorie counts—Asian street food and restaurant dishes often use more oil than home-cooked versions.
-    4. If a dish is deep-fried (like Tempura or Pakora), ensure the fat content reflects that.
-    5. Provide a catchy, concise name for the overall meal (e.g., 'Hearty Nasi Lemak Breakfast'). Keep it under 6 words.
+    1. Identify specific dishes from Malay, Indian, Chinese, Thai, or Vietnamese cuisines.
+    2. Estimate calories, protein, carbs, and fat per serving.
+    3. Account for hidden fats like coconut milk, palm oil, or ghee.
+    4. Provide a catchy, concise name for the overall meal (max 6 words).
 
     Return the response as a valid JSON object.
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-flash-latest",
       contents: {
         parts: [
           { text: prompt },
@@ -56,7 +50,7 @@ export const analyzeMealImage = async (files: File[]): Promise<any> => {
           properties: {
             mealName: {
               type: Type.STRING,
-              description: "A concise and descriptive name for the overall meal based on the identified dishes."
+              description: "A concise name for the overall meal."
             },
             items: {
               type: Type.ARRAY,
@@ -65,7 +59,7 @@ export const analyzeMealImage = async (files: File[]): Promise<any> => {
                 properties: {
                   name: { 
                     type: Type.STRING,
-                    description: "Specific name of the dish, including regional identifiers if possible."
+                    description: "Name of the dish."
                   },
                   calories: { type: Type.NUMBER },
                   protein: { type: Type.NUMBER },
@@ -78,7 +72,7 @@ export const analyzeMealImage = async (files: File[]): Promise<any> => {
             },
             summary: { 
               type: Type.STRING,
-              description: "A brief nutritional breakdown explaining why these values were chosen (e.g., 'High fat due to coconut milk base')."
+              description: "Brief nutritional breakdown."
             }
           },
           required: ["mealName", "items", "summary"]
@@ -86,9 +80,9 @@ export const analyzeMealImage = async (files: File[]): Promise<any> => {
       }
     });
 
-    // Directly access the .text property from the GenerateContentResponse object.
+    // Access the text property directly from the response.
     const text = response.text;
-    if (!text) throw new Error("No response text from Gemini");
+    if (!text) throw new Error("Empty response from AI");
     
     return JSON.parse(text);
   } catch (error) {

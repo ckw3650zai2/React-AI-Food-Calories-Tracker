@@ -1,10 +1,12 @@
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/React-icon.svg/1200px-React-icon.svg.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#10B981" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <title>AI Calories Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -37,11 +39,22 @@
       }
     </script>
     <style>
+      :root {
+        --sat: env(safe-area-inset-top);
+        --sab: env(safe-area-inset-bottom);
+        --sal: env(safe-area-inset-left);
+        --sar: env(safe-area-inset-right);
+      }
+      * {
+        -webkit-tap-highlight-color: transparent;
+      }
       body {
         background-color: #fdfdfd;
         font-family: 'Inter', system-ui, -apple-system, sans-serif;
         color: #1f2937;
         overflow-x: hidden;
+        /* Background extends to edges, content handles padding */
+        min-height: 100vh;
       }
       .bg-mesh {
         background-image: radial-gradient(at 0% 0%, hsla(161,71%,91%,1) 0, transparent 50%), 
@@ -51,14 +64,12 @@
                           radial-gradient(at 100% 100%, hsla(161,71%,91%,1) 0, transparent 50%);
         background-attachment: fixed;
       }
-      /* Custom Glassmorphism */
       .glass-card {
         background: rgba(255, 255, 255, 0.7);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
         border: 1px solid rgba(255, 255, 255, 0.3);
       }
-      /* Hide scrollbar */
       .no-scrollbar::-webkit-scrollbar {
         display: none;
       }
@@ -67,14 +78,13 @@
         scrollbar-width: none;
       }
       .animate-fade-in {
-        animation: fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
       }
       @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(15px); }
+        from { opacity: 0; transform: translateY(10px); }
         to { opacity: 1; transform: translateY(0); }
       }
       
-      /* New Achievement Animations */
       @keyframes sparkle {
         0%, 100% { transform: scale(0) rotate(0deg); opacity: 0; }
         50% { transform: scale(1.2) rotate(180deg); opacity: 1; }
@@ -88,62 +98,28 @@
         animation: sparkle 2s infinite;
       }
 
-      @keyframes golden-glow {
-        0%, 100% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.4), 0 0 20px rgba(245, 158, 11, 0.2); border-color: rgba(245, 158, 11, 0.6); }
-        50% { box-shadow: 0 0 25px rgba(245, 158, 11, 0.8), 0 0 50px rgba(245, 158, 11, 0.4); border-color: rgba(245, 158, 11, 1); }
-      }
-      .new-badge-glow {
-        animation: golden-glow 2s infinite ease-in-out;
-      }
-
-      @keyframes float-up {
-        0% { transform: translateY(0) scale(1); opacity: 1; }
-        100% { transform: translateY(-100px) scale(0); opacity: 0; }
-      }
-      .particle {
-        position: absolute;
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        animation: float-up 1.5s forwards ease-out;
-      }
-
-      .blob {
-        position: fixed;
-        width: 600px;
-        height: 600px;
-        border-radius: 50%;
-        filter: blur(80px);
-        z-index: -1;
-        opacity: 0.4;
-        animation: drift 20s infinite alternate;
-      }
-      @keyframes drift {
-        from { transform: translate(-10%, -10%) rotate(0deg); }
-        to { transform: translate(10%, 10%) rotate(20deg); }
-      }
+      .safe-top { padding-top: var(--sat); }
+      .safe-bottom { padding-bottom: var(--sab); }
+      .safe-mt { margin-top: var(--sat); }
+      .safe-mb { margin-bottom: var(--sab); }
     </style>
   <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@19.0.0",
-    "react-dom": "https://esm.sh/react-dom@19.0.0",
-    "react-dom/": "https://esm.sh/react-dom@19.0.0/",
-    "react/": "https://esm.sh/react@19.0.0/",
-    "lucide-react": "https://esm.sh/lucide-react@0.460.0",
-    "date-fns": "https://esm.sh/date-fns@4.1.0",
-    "@google/genai": "https://esm.sh/@google/genai",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
     "vite": "https://esm.sh/vite@^7.3.0",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "date-fns": "https://esm.sh/date-fns@^4.1.0"
   }
 }
 </script>
 </head>
-  <body class="bg-mesh min-h-screen no-scrollbar">
-    <!-- Decorative Blobs -->
-    <div class="blob bg-brand-green/20 top-[-200px] left-[-200px]"></div>
-    <div class="blob bg-blue-400/10 bottom-[-200px] right-[-200px]" style="animation-duration: 25s; animation-direction: alternate-reverse;"></div>
+  <body class="bg-mesh">
     <div id="root"></div>
-    <script type="module" src="./index.tsx"></script>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>
