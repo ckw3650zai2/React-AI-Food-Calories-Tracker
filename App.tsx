@@ -239,6 +239,36 @@ const App: React.FC = () => {
     setAuthLoading(false);
   };
 
+  const handleSkipAuth = () => {
+    // Mock user data for testing purposes
+    const mockUser: UserProfile = {
+      name: "Test User",
+      age: 25,
+      gender: Gender.MALE,
+      weight: 70,
+      height: 175,
+      activityLevel: ActivityLevel.MODERATE,
+      goals: {
+        calories: 2200,
+        protein: 165,
+        carbs: 220,
+        fat: 73,
+        type: GoalType.MAINTENANCE
+      },
+      streak: 3,
+      lastLoginDate: format(new Date(), 'yyyy-MM-dd'),
+      lastLoginTimestamp: Date.now(),
+      lastMealTimestamp: Date.now(),
+      earnedBadges: ['starter'],
+      totalMealsLogged: 1
+    };
+    
+    // Mock session
+    setSession({ user: { id: 'test-user-id', email: 'test@example.com' } });
+    setUser(mockUser);
+    setView('dashboard');
+  };
+
   const handlePhoneLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isSupabaseConfigured) {
@@ -763,6 +793,14 @@ const App: React.FC = () => {
                             <UserCircle size={20} className="text-gray-400" />
                             Continue as Guest
                         </button>
+
+                        <button 
+                            onClick={handleSkipAuth}
+                            className="w-full py-4 mt-2 bg-purple-50 hover:bg-purple-100 text-purple-600 font-bold rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] border-2 border-dashed border-purple-200"
+                        >
+                            <Sparkles size={20} className="text-purple-500" />
+                            Skip Auth (Test Mode)
+                        </button>
                      </>
                  ) : (
                      <form onSubmit={handleVerifyOtp} className="space-y-6">
@@ -1105,25 +1143,23 @@ const App: React.FC = () => {
                                     }
                                 }}
                                 className={`
-                                    relative flex flex-col items-center justify-center h-10 w-10 mx-auto rounded-2xl transition-all duration-300
+                                    relative flex flex-col items-center justify-center h-14 w-10 mx-auto rounded-2xl transition-all duration-300
                                     ${isSelected ? 'bg-brand-dark text-white shadow-lg scale-110 z-10' : ''}
                                     ${!isSelected && isCurrentMonth ? 'text-gray-700 hover:bg-gray-50' : ''}
                                     ${!isSelected && !isCurrentMonth ? 'text-gray-300' : ''}
                                     ${!isSelected && isToday ? 'border-2 border-brand-green/30' : ''}
                                 `}
                             >
-                                <span className={`text-sm font-bold ${isSelected ? 'text-white' : ''}`}>{format(day, 'd')}</span>
+                                <span className={`text-sm font-bold z-10 mb-2 ${isSelected ? 'text-white' : ''}`}>{format(day, 'd')}</span>
                                 
                                 {/* Indicators */}
-                                {goalMet && (
-                                    <div className="absolute -top-1 -right-1 bg-brand-green rounded-full p-0.5 border-2 border-white shadow-sm z-10">
-                                        <Check size={8} className="text-white" strokeWidth={4} />
-                                    </div>
-                                )}
-                                
-                                {hasData && !goalMet && (
-                                     <div className={`absolute bottom-1 w-1 h-1 rounded-full ${isSelected ? 'bg-gray-500' : 'bg-gray-300'}`}></div>
-                                )}
+                                <div className="absolute bottom-1.5 left-0 right-0 flex justify-center">
+                                    {goalMet ? (
+                                        <Check size={16} className="text-brand-green" strokeWidth={3} />
+                                    ) : hasData ? (
+                                         <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-gray-500' : 'bg-gray-300'}`}></div>
+                                    ) : null}
+                                </div>
                             </button>
                         );
                     })}
