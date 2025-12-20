@@ -35,7 +35,8 @@ import {
   Camera as CameraIcon,
   Target,
   Eye,
-  Clock
+  Clock,
+  Sparkles
 } from 'lucide-react';
 import { format, isSameDay, subMonths, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth } from 'date-fns';
 
@@ -61,15 +62,24 @@ const App: React.FC = () => {
   const [showMenu, setShowMenu] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   
+  // Tabs state for Dashboard
+  const [activeMealTab, setActiveMealTab] = useState(0);
+
   // Modals state
   const [showCamera, setShowCamera] = useState(false);
   const [showNutritionModal, setShowNutritionModal] = useState(false);
   const [currentAnalysis, setCurrentAnalysis] = useState<FoodItem[]>([]);
+  const [suggestedMealName, setSuggestedMealName] = useState<string>('');
   const [pendingImages, setPendingImages] = useState<File[]>([]);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
   
+  // Achievement Animation State
+  const [newlyEarnedBadgeId, setNewlyEarnedBadgeId] = useState<string | null>(null);
+  const [sessionEarnedBadges, setSessionEarnedBadges] = useState<Set<string>>(new Set());
+
   // Achievement Logic - Memoized to prevent unnecessary re-runs
   const checkAchievements = useCallback((currentUser: UserProfile, currentMeals: Meal[]) => {
+    const existingBadges = new Set(currentUser.earnedBadges || []);
     const earned = new Set(currentUser.earnedBadges || []);
     
     // 1. Total meal milestones
@@ -79,7 +89,7 @@ const App: React.FC = () => {
     // 2. Photo & Camera milestones
     const mealsWithPhotos = currentMeals.filter(m => m.imageUrl);
     if (mealsWithPhotos.length >= 10) earned.add('photo_10');
-    const mealsWithCamera = currentMeals.filter(m => m.imageUrl && m.imageUrl.startsWith('blob:')); // Assuming blob: means camera/direct upload
+    const mealsWithCamera = currentMeals.filter(m => m.imageUrl && m.imageUrl.startsWith('blob:')); 
     if (mealsWithCamera.length >= 5) earned.add('camera_5');
     
     // 3. Streak milestones
@@ -101,7 +111,15 @@ const App: React.FC = () => {
 
     if (hasPerfectDay) earned.add('sniper');
 
-    if (earned.size !== (currentUser.earnedBadges?.length || 0)) {
+    if (earned.size !== existingBadges.size) {
+      // Find the new badge(s)
+      earned.forEach(id => {
+        if (!existingBadges.has(id)) {
+          setNewlyEarnedBadgeId(id);
+          setSessionEarnedBadges(prev => new Set(prev).add(id));
+        }
+      });
+
       setUser(prev => prev ? {
         ...prev,
         earnedBadges: Array.from(earned),
@@ -128,7 +146,7 @@ const App: React.FC = () => {
     if (savedUser) {
       try {
         const parsedUser = JSON.parse(savedUser);
-        checkStreak(parsedUser, initialMeals);
+        checkStreak(parsedUser, initialMeals, false);
       } catch (e) {
         setView('onboarding');
       }
@@ -143,44 +161,60 @@ const App: React.FC = () => {
       localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
       checkAchievements(user, meals);
     }
+    localStorage.setItem(STORAGE_KEY_MEALS, JSON.stringify(meals));
   }, [user, meals, checkAchievements]);
 
-  // Streak Logic
-  const checkStreak = (userData: UserProfile, currentMeals: Meal[]) => {
-    const today = format(new Date(), 'yyyy-MM-dd');
-    if (userData.lastLoginDate !== today) {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = format(yesterday, 'yyyy-MM-dd');
+  /**
+   * Streak Logic
+   */
+  const checkStreak = (userData: UserProfile, currentMeals: Meal[], isMealLogged: boolean) => {
+    const now = Date.now();
+    const lastMeal = userData.lastMealTimestamp || now;
+    const lastUpdate = userData.lastLoginTimestamp || now;
+    
+    const diffMealHours = (now - lastMeal) / 36e5;
+    const diffUpdateHours = (now - lastUpdate) / 36e5;
 
-      let newStreak = userData.streak || 0;
-      if (userData.lastLoginDate === yesterdayStr) {
+    let newStreak = userData.streak || 1;
+    let newLastUpdate = userData.lastLoginTimestamp || now;
+    let newLastMeal = userData.lastMealTimestamp || now;
+
+    if (isMealLogged) {
+      if (diffMealHours >= 48) {
+        newStreak = 1;
+        newLastUpdate = now;
+      } 
+      else if (diffUpdateHours >= 24) {
         newStreak += 1;
-      } else if (userData.lastLoginDate !== today) {
-        const lastLogin = new Date(userData.lastLoginDate);
-        const diffTime = Math.abs(new Date().getTime() - lastLogin.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-        if (diffDays > 1) newStreak = 1;
-        else newStreak += 1;
+        newLastUpdate = now;
       }
-
-      const updatedUser = { 
-        ...userData, 
-        streak: newStreak, 
-        lastLoginDate: today,
-        earnedBadges: userData.earnedBadges || [],
-        totalMealsLogged: currentMeals.length || userData.totalMealsLogged || 0
-      };
-      setUser(updatedUser);
-      setView('dashboard');
+      newLastMeal = now;
     } else {
-      setUser({
-        ...userData,
-        earnedBadges: userData.earnedBadges || [],
-        totalMealsLogged: currentMeals.length || userData.totalMealsLogged || 0
-      });
-      setView('dashboard');
+      if (diffMealHours >= 48) {
+        newStreak = 1;
+        newLastUpdate = now;
+        newLastMeal = now;
+      }
     }
+
+    if (!userData.lastMealTimestamp) {
+      newLastMeal = now;
+      newLastUpdate = now;
+      newStreak = 1;
+    }
+
+    const updatedUser: UserProfile = { 
+      ...userData, 
+      streak: newStreak, 
+      lastLoginDate: format(new Date(), 'yyyy-MM-dd'),
+      lastLoginTimestamp: newLastUpdate,
+      lastMealTimestamp: newLastMeal,
+      earnedBadges: userData.earnedBadges || [],
+      totalMealsLogged: currentMeals.length || userData.totalMealsLogged || 0
+    };
+    
+    setUser(updatedUser);
+    setView('dashboard');
   };
 
   const calculateGoals = (age: number, gender: Gender, weight: number, height: number, activity: ActivityLevel) => {
@@ -188,6 +222,7 @@ const App: React.FC = () => {
     bmr += gender === Gender.MALE ? 5 : -161;
     let multiplier = 1.2;
     switch (activity) {
+      case ActivityLevel.SEDENTARY: multiplier = 1.2; break;
       case ActivityLevel.LIGHT: multiplier = 1.375; break;
       case ActivityLevel.MODERATE: multiplier = 1.55; break;
       case ActivityLevel.ACTIVE: multiplier = 1.725; break;
@@ -210,15 +245,33 @@ const App: React.FC = () => {
     const height = Number(formData.get('height'));
     const gender = formData.get('gender') as Gender;
     const activity = formData.get('activity') as ActivityLevel;
+
+    // Validation
+    if (isNaN(age) || age <= 0 || age > 120) {
+      alert("Please enter a valid age between 1 and 120.");
+      return;
+    }
+    if (isNaN(weight) || weight <= 10 || weight > 600) {
+      alert("Please enter a valid weight between 10kg and 600kg.");
+      return;
+    }
+    if (isNaN(height) || height <= 50 || height > 280) {
+      alert("Please enter a valid height between 50cm and 280cm.");
+      return;
+    }
+
     const goals = calculateGoals(age, gender, weight, height, activity);
+    const now = Date.now();
     const newUser: UserProfile = {
-      name: 'User',
+      name: user?.name || 'User',
       age, weight, height, gender, activityLevel: activity,
       goals,
-      streak: 1,
-      lastLoginDate: format(new Date(), 'yyyy-MM-dd'),
-      earnedBadges: [],
-      totalMealsLogged: 0
+      streak: user?.streak || 1,
+      lastLoginDate: user?.lastLoginDate || format(new Date(), 'yyyy-MM-dd'),
+      lastLoginTimestamp: user?.lastLoginTimestamp || now,
+      lastMealTimestamp: user?.lastMealTimestamp || now,
+      earnedBadges: user?.earnedBadges || [],
+      totalMealsLogged: user?.totalMealsLogged || 0
     };
     setUser(newUser);
     setView('dashboard');
@@ -226,7 +279,7 @@ const App: React.FC = () => {
 
   const todayMeals = useMemo(() => {
     const today = format(new Date(), 'yyyy-MM-dd');
-    return meals.filter(m => m.date === today);
+    return meals.filter(m => m.date === today).sort((a, b) => b.timestamp - a.timestamp);
   }, [meals]);
 
   const totals = useMemo(() => {
@@ -255,6 +308,7 @@ const App: React.FC = () => {
     try {
       const data = await analyzeMealImage(files);
       setCurrentAnalysis(data.items);
+      setSuggestedMealName(data.mealName || '');
       setShowNutritionModal(true);
     } catch (err) {
       alert("Failed to analyze image. Please check your API configuration.");
@@ -265,11 +319,12 @@ const App: React.FC = () => {
 
   const handleEditMeal = (meal: Meal) => {
     setEditingMealId(meal.id);
+    setSuggestedMealName(meal.name);
     setCurrentAnalysis([...meal.items]);
     setShowNutritionModal(true);
   };
 
-  const saveMeal = (finalItems: FoodItem[]) => {
+  const saveMeal = (finalItems: FoodItem[], finalTitle: string) => {
     const mealTotals = finalItems.reduce((acc, item) => ({
       calories: acc.calories + (Number(item.calories) || 0),
       protein: acc.protein + (Number(item.protein) || 0),
@@ -277,9 +332,19 @@ const App: React.FC = () => {
       fat: acc.fat + (Number(item.fat) || 0),
     }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
+    const generateFallbackName = (items: FoodItem[]) => {
+      if (items.length === 0) return 'Empty Meal';
+      const firstName = items[0].name;
+      if (items.length === 1) return firstName;
+      return `${firstName} + ${items.length - 1} more`;
+    };
+
+    const mealName = finalTitle || generateFallbackName(finalItems);
+
     if (editingMealId) {
       setMeals(prev => prev.map(m => m.id === editingMealId ? {
         ...m,
+        name: mealName,
         items: finalItems,
         totalCalories: mealTotals.calories,
         totalProtein: mealTotals.protein,
@@ -291,7 +356,7 @@ const App: React.FC = () => {
         id: Date.now().toString(),
         date: format(new Date(), 'yyyy-MM-dd'),
         timestamp: Date.now(),
-        name: `Meal ${todayMeals.length + 1}`,
+        name: mealName,
         items: finalItems,
         totalCalories: mealTotals.calories,
         totalProtein: mealTotals.protein,
@@ -300,11 +365,71 @@ const App: React.FC = () => {
         imageUrl: pendingImages.length > 0 ? URL.createObjectURL(pendingImages[0]) : undefined
       };
       setMeals(prev => [newMeal, ...prev]);
+      setActiveMealTab(0); 
+    }
+
+    if (user) {
+        checkStreak(user, meals, true);
     }
 
     setShowNutritionModal(false);
     setPendingImages([]);
     setEditingMealId(null);
+    setSuggestedMealName('');
+  };
+
+  const AchievementCelebration = () => {
+    if (!newlyEarnedBadgeId) return null;
+    const badge = BADGES_DATA[newlyEarnedBadgeId];
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-brand-dark/95 backdrop-blur-xl animate-fade-in px-4">
+        <div className="relative w-full max-w-sm text-center">
+          {[...Array(20)].map((_, i) => (
+            <div 
+              key={i} 
+              className="particle" 
+              style={{ 
+                left: `${Math.random() * 100}%`, 
+                top: `${Math.random() * 100}%`, 
+                backgroundColor: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#FFFFFF'][Math.floor(Math.random() * 5)],
+                animationDelay: `${Math.random() * 1}s`
+              }} 
+            />
+          ))}
+          <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-48 h-48 bg-brand-green/20 blur-[60px] rounded-full animate-pulse"></div>
+          
+          <div className="relative z-10 space-y-8">
+            <div className={`w-40 h-40 mx-auto rounded-[3rem] ${badge.color} text-white flex items-center justify-center shadow-2xl shadow-brand-green/20 border-4 border-white/20 animate-bounce-slow relative overflow-hidden`}>
+              <div className="absolute inset-0 bg-white/10 animate-pulse"></div>
+              {React.cloneElement(badge.icon as React.ReactElement<{ size?: number }>, { size: 80 })}
+              <Sparkles className="absolute top-4 right-4 text-white/40 animate-spin-slow" size={24} />
+            </div>
+            <div>
+              <h2 className="text-4xl font-black text-white mb-2 uppercase tracking-tighter">Achievement Unlocked!</h2>
+              <p className="text-brand-green font-black text-xl uppercase tracking-widest mb-6">{badge.name}</p>
+              <div className="bg-white/5 border border-white/10 p-6 rounded-3xl backdrop-blur-md">
+                <p className="text-gray-300 font-medium text-lg leading-relaxed">{badge.description}</p>
+              </div>
+            </div>
+            <button 
+              onClick={() => {
+                setNewlyEarnedBadgeId(null);
+                setView('profile');
+              }}
+              className="w-full py-5 bg-brand-green hover:bg-emerald-600 text-white font-black rounded-3xl transition-all shadow-xl shadow-brand-green/20 transform active:scale-95 uppercase tracking-widest text-lg"
+            >
+              Show Me in Trophy Room
+            </button>
+            <button 
+              onClick={() => setNewlyEarnedBadgeId(null)}
+              className="text-gray-500 font-black uppercase tracking-widest text-xs hover:text-white transition-colors"
+            >
+              Continue Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const OnboardingView = () => (
@@ -321,11 +446,20 @@ const App: React.FC = () => {
           <div className="grid grid-cols-2 gap-6">
             <div>
               <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Age</label>
-              <input name="age" type="number" required defaultValue="25" className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none transition font-bold" />
+              <input 
+                name="age" 
+                type="number" 
+                required 
+                defaultValue={user?.age || "25"} 
+                min="1" 
+                max="120" 
+                onKeyDown={(e) => { if (e.key === '-' || e.key === 'e') e.preventDefault(); }}
+                className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none transition font-bold" 
+              />
             </div>
             <div>
               <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Gender</label>
-              <select name="gender" className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold">
+              <select name="gender" defaultValue={user?.gender || Gender.MALE} className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold">
                 <option value={Gender.MALE}>Male</option>
                 <option value={Gender.FEMALE}>Female</option>
               </select>
@@ -334,24 +468,47 @@ const App: React.FC = () => {
           <div className="grid grid-cols-2 gap-6">
             <div>
               <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Weight (kg)</label>
-              <input name="weight" type="number" required defaultValue="70" className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold" />
+              <input 
+                name="weight" 
+                type="number" 
+                required 
+                defaultValue={user?.weight || "70"} 
+                min="10" 
+                max="600" 
+                onKeyDown={(e) => { if (e.key === '-' || e.key === 'e') e.preventDefault(); }}
+                className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold" 
+              />
             </div>
             <div>
               <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Height (cm)</label>
-              <input name="height" type="number" required defaultValue="175" className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold" />
+              <input 
+                name="height" 
+                type="number" 
+                required 
+                defaultValue={user?.height || "175"} 
+                min="50" 
+                max="280" 
+                onKeyDown={(e) => { if (e.key === '-' || e.key === 'e') e.preventDefault(); }}
+                className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold" 
+              />
             </div>
           </div>
           <div>
             <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Activity Level</label>
-            <select name="activity" className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold">
+            <select name="activity" defaultValue={user?.activityLevel || ActivityLevel.MODERATE} className="w-full p-4 bg-white/50 border border-white rounded-2xl outline-none font-bold">
               {Object.values(ActivityLevel).map(level => (
                 <option key={level} value={level}>{level}</option>
               ))}
             </select>
           </div>
           <button type="submit" className="w-full bg-brand-dark hover:bg-black text-white font-black py-5 rounded-2xl transition-all shadow-xl shadow-brand-dark/20 transform active:scale-[0.98] uppercase tracking-widest mt-4">
-            Create My Plan
+            {user ? 'Update My Plan' : 'Create My Plan'}
           </button>
+          {user && (
+            <button type="button" onClick={() => setView('profile')} className="w-full text-center text-gray-400 font-black uppercase tracking-widest text-[10px] py-2 hover:text-gray-900 transition-colors">
+              Go Back to Profile
+            </button>
+          )}
         </form>
       </div>
     </div>
@@ -422,6 +579,7 @@ const App: React.FC = () => {
           </div>
         </div>
       </div>
+      
       <div className="glass-card rounded-[3rem] p-12 text-center mb-10 relative overflow-hidden transition-all border-2 border-dashed border-brand-green/30 group hover:bg-white/90">
         {isAnalyzing && (
             <div className="absolute inset-0 bg-white/95 z-10 flex items-center justify-center backdrop-blur-md">
@@ -450,24 +608,51 @@ const App: React.FC = () => {
             </button>
         </div>
       </div>
-      <div className="flex justify-between items-end mb-8 px-2">
+
+      <div className="flex justify-between items-end mb-4 px-2">
         <div>
           <h2 className="text-3xl font-black text-gray-900 tracking-tight">Today's Meals</h2>
         </div>
-        <button onClick={() => { setEditingMealId(null); setCurrentAnalysis([]); setShowNutritionModal(true); }} className="bg-white/80 backdrop-blur-md border border-brand-green/20 text-brand-green px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-green hover:text-white transition-all shadow-sm">
+        <button onClick={() => { setEditingMealId(null); setSuggestedMealName('Manual Entry'); setCurrentAnalysis([]); setShowNutritionModal(true); }} className="bg-white/80 backdrop-blur-md border border-brand-green/20 text-brand-green px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-green hover:text-white transition-all shadow-sm">
             + Manual Add
         </button>
       </div>
+
       {todayMeals.length === 0 ? (
         <div className="glass-card rounded-[3rem] p-24 text-center">
             <p className="text-gray-900 font-black text-2xl mb-2">Feeling Hungry?</p>
             <p className="text-gray-400 text-lg font-medium">Capture your first meal to start tracking today.</p>
         </div>
       ) : (
-        <div className="grid gap-6">
-            {todayMeals.map((meal) => (
-                <MealCard key={meal.id} meal={meal} onEdit={handleEditMeal} onDelete={(id) => setMeals(meals.filter(m => m.id !== id))} />
-            ))}
+        <div className="space-y-6">
+          <div className="flex flex-wrap gap-2 px-2 overflow-x-auto no-scrollbar py-2">
+             {todayMeals.map((meal, idx) => (
+                <button 
+                  key={meal.id}
+                  onClick={() => setActiveMealTab(idx)}
+                  className={`px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap border ${
+                    activeMealTab === idx 
+                      ? 'bg-brand-green text-white border-brand-green shadow-lg shadow-brand-green/20 scale-105' 
+                      : 'bg-white/60 text-gray-400 border-white/50 hover:bg-white'
+                  }`}
+                >
+                  {meal.name}
+                </button>
+             ))}
+          </div>
+          
+          <div className="animate-fade-in" key={todayMeals[activeMealTab]?.id}>
+            {todayMeals[activeMealTab] && (
+              <MealCard 
+                meal={todayMeals[activeMealTab]} 
+                onEdit={handleEditMeal} 
+                onDelete={(id) => {
+                  setMeals(meals.filter(m => m.id !== id));
+                  setActiveMealTab(0);
+                }} 
+              />
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -492,7 +677,7 @@ const App: React.FC = () => {
 
     const mealsForSelectedDate = useMemo(() => {
         const selectedStr = format(selectedDate, 'yyyy-MM-dd');
-        return meals.filter(m => m.date === selectedStr);
+        return meals.filter(m => m.date === selectedStr).sort((a, b) => b.timestamp - a.timestamp);
     }, [meals, selectedDate]);
     
     return (
@@ -502,10 +687,24 @@ const App: React.FC = () => {
                      <h2 className="text-3xl font-black flex items-center gap-4">
                         <CalendarIcon size={32} className="text-brand-green" /> Journey Map
                      </h2>
-                     <div className="flex items-center gap-3 bg-white/50 rounded-2xl p-2 border border-white shadow-sm">
-                        <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-3 hover:bg-white rounded-xl shadow-sm transition"><ChevronLeft size={20}/></button>
-                        <span className="font-black w-44 text-center text-sm uppercase tracking-widest">{format(currentMonth, 'MMMM yyyy')}</span>
-                        <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-3 hover:bg-white rounded-xl shadow-sm transition"><ChevronRight size={20}/></button>
+                     <div className="flex items-center gap-4 flex-wrap">
+                        {!isSameDay(selectedDate, new Date()) && (
+                          <button 
+                            onClick={() => {
+                              const today = new Date();
+                              setCurrentMonth(today);
+                              setSelectedDate(today);
+                            }}
+                            className="text-brand-green hover:text-emerald-700 font-black text-[10px] uppercase tracking-widest transition-colors flex items-center gap-2"
+                          >
+                            <Zap size={14} fill="currentColor" /> Jump to Today
+                          </button>
+                        )}
+                        <div className="flex items-center gap-3 bg-white/50 rounded-2xl p-2 border border-white shadow-sm">
+                           <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-3 hover:bg-white rounded-xl shadow-sm transition"><ChevronLeft size={20}/></button>
+                           <span className="font-black w-44 text-center text-sm uppercase tracking-widest">{format(currentMonth, 'MMMM yyyy')}</span>
+                           <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-3 hover:bg-white rounded-xl shadow-sm transition"><ChevronRight size={20}/></button>
+                        </div>
                      </div>
                  </div>
                  <div className="grid grid-cols-7 gap-4">
@@ -632,8 +831,24 @@ const App: React.FC = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {Object.entries(BADGES_DATA).map(([id, data]) => {
                             const isEarned = user?.earnedBadges?.includes(id);
+                            const isNewInSession = sessionEarnedBadges.has(id);
+                            
                             return (
-                                <div key={id} className={`p-6 rounded-[2.5rem] border-2 transition-all duration-500 flex items-center gap-6 ${isEarned ? 'border-brand-green bg-white shadow-xl scale-105' : 'border-dashed border-gray-200 opacity-60 grayscale'}`}>
+                                <div 
+                                  key={id} 
+                                  className={`p-6 rounded-[2.5rem] border-2 transition-all duration-500 flex items-center gap-6 relative overflow-hidden ${
+                                    isEarned 
+                                      ? `border-brand-green bg-white shadow-xl scale-105 ${isNewInSession ? 'new-badge-glow ring-4 ring-brand-green/20' : ''}` 
+                                      : 'border-dashed border-gray-200 opacity-60 grayscale'
+                                  }`}
+                                >
+                                    {isNewInSession && (
+                                      <>
+                                        <div className="sparkle top-2 left-2"></div>
+                                        <div className="sparkle bottom-4 right-6" style={{ animationDelay: '0.7s' }}></div>
+                                        <div className="absolute top-2 right-4 bg-brand-green text-white text-[8px] font-black px-2 py-0.5 rounded-full animate-pulse uppercase">NEW</div>
+                                      </>
+                                    )}
                                     <div className={`w-20 h-20 rounded-3xl flex items-center justify-center text-white shadow-lg ${isEarned ? data.color : 'bg-gray-100 text-gray-400'}`}>
                                         {React.cloneElement(data.icon as React.ReactElement<{ size?: number }>, { size: 36 })}
                                     </div>
@@ -668,11 +883,13 @@ const App: React.FC = () => {
         {view === 'history' && <MealHistoryView />}
         {view === 'profile' && <ProfileView />}
       </main>
+      <AchievementCelebration />
       {showCamera && <CameraModal onClose={() => setShowCamera(false)} onCapture={handleCameraCapture} />}
       {showNutritionModal && (
         <NutritionModal 
+            initialTitle={suggestedMealName}
             items={currentAnalysis}
-            onCancel={() => { setShowNutritionModal(false); setPendingImages([]); setEditingMealId(null); }}
+            onCancel={() => { setShowNutritionModal(false); setPendingImages([]); setEditingMealId(null); setSuggestedMealName(''); }}
             onSave={saveMeal}
         />
       )}
@@ -690,8 +907,8 @@ const MealCard: React.FC<{ meal: Meal; onEdit: (meal: Meal) => void; onDelete: (
                          <img src={meal.imageUrl} alt={meal.name} className="w-28 h-28 rounded-3xl object-cover shadow-2xl ring-4 ring-white" />
                      </div>
                  )}
-                 <div>
-                     <h4 className="font-black text-gray-900 text-2xl tracking-tight mb-1">{meal.name}</h4>
+                 <div className="flex-1">
+                     <h4 className="font-black text-gray-900 text-2xl tracking-tight mb-1 truncate max-w-[200px] md:max-w-md">{meal.name}</h4>
                      <p className="text-xs text-gray-400 font-black uppercase tracking-widest flex items-center gap-2">
                          <Clock size={14} className="text-brand-green" /> {format(meal.timestamp, 'h:mm a')}
                      </p>

@@ -36,7 +36,9 @@ export interface UserProfile {
   activityLevel: ActivityLevel;
   goals: NutritionGoals;
   streak: number;
-  lastLoginDate: string; // YYYY-MM-DD
+  lastLoginDate: string; // YYYY-MM-DD (kept for display)
+  lastLoginTimestamp: number; // Used as the "last streak increment" reference
+  lastMealTimestamp: number; // Used for the 48h reset "gap" logic
   earnedBadges: string[]; // IDs of earned badges
   totalMealsLogged: number;
 }

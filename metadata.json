@@ -1,5 +1,5 @@
 {
-  "name": "AI Calories Tracker",
+  "name": "React AI Calories Tracker",
   "description": "An intelligent nutrition tracker that uses AI to analyze food photos, specifically optimized for Asian cuisine, with gamification features.",
   "requestFramePermissions": [
     "camera"

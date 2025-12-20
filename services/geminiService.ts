@@ -35,6 +35,7 @@ export const analyzeMealImage = async (files: File[]): Promise<any> => {
        - Sodium levels in fermented pastes (Belacan, Miso, Fish Sauce).
     3. Estimate nutritional content per serving shown. Be conservative with calorie counts—Asian street food and restaurant dishes often use more oil than home-cooked versions.
     4. If a dish is deep-fried (like Tempura or Pakora), ensure the fat content reflects that.
+    5. Provide a catchy, concise name for the overall meal (e.g., 'Hearty Nasi Lemak Breakfast'). Keep it under 6 words.
 
     Return the response as a valid JSON object.
   `;
@@ -53,6 +54,10 @@ export const analyzeMealImage = async (files: File[]): Promise<any> => {
         responseSchema: {
           type: Type.OBJECT,
           properties: {
+            mealName: {
+              type: Type.STRING,
+              description: "A concise and descriptive name for the overall meal based on the identified dishes."
+            },
             items: {
               type: Type.ARRAY,
               items: {
@@ -76,7 +81,7 @@ export const analyzeMealImage = async (files: File[]): Promise<any> => {
               description: "A brief nutritional breakdown explaining why these values were chosen (e.g., 'High fat due to coconut milk base')."
             }
           },
-          required: ["items", "summary"]
+          required: ["mealName", "items", "summary"]
         }
       }
     });

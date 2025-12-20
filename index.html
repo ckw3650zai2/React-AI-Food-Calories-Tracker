@@ -26,6 +26,11 @@
             },
             backgroundImage: {
               'mesh': 'radial-gradient(at 0% 0%, hsla(161,71%,91%,1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(217,91%,91%,1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(38,92%,91%,1) 0, transparent 50%)',
+            },
+            animation: {
+              'bounce-slow': 'bounce 3s infinite',
+              'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'spin-slow': 'spin 8s linear infinite',
             }
           }
         }
@@ -68,6 +73,41 @@
         from { opacity: 0; transform: translateY(15px); }
         to { opacity: 1; transform: translateY(0); }
       }
+      
+      /* New Achievement Animations */
+      @keyframes sparkle {
+        0%, 100% { transform: scale(0) rotate(0deg); opacity: 0; }
+        50% { transform: scale(1.2) rotate(180deg); opacity: 1; }
+      }
+      .sparkle {
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        background: white;
+        clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+        animation: sparkle 2s infinite;
+      }
+
+      @keyframes golden-glow {
+        0%, 100% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.4), 0 0 20px rgba(245, 158, 11, 0.2); border-color: rgba(245, 158, 11, 0.6); }
+        50% { box-shadow: 0 0 25px rgba(245, 158, 11, 0.8), 0 0 50px rgba(245, 158, 11, 0.4); border-color: rgba(245, 158, 11, 1); }
+      }
+      .new-badge-glow {
+        animation: golden-glow 2s infinite ease-in-out;
+      }
+
+      @keyframes float-up {
+        0% { transform: translateY(0) scale(1); opacity: 1; }
+        100% { transform: translateY(-100px) scale(0); opacity: 0; }
+      }
+      .particle {
+        position: absolute;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        animation: float-up 1.5s forwards ease-out;
+      }
+
       .blob {
         position: fixed;
         width: 600px;
