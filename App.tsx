@@ -183,7 +183,11 @@ const App: React.FC = () => {
 
         setUser(mappedUser);
         setMeals(mappedMeals);
-        checkStreak(mappedUser, mappedMeals, false); // Check streak on load
+        
+        // Check streak and achievements on load
+        const updatedUser = await checkStreak(mappedUser, mappedMeals, false); 
+        await checkAchievements(updatedUser, mappedMeals);
+        
         setView('dashboard');
       }
     } catch (error) {
@@ -325,8 +329,9 @@ const App: React.FC = () => {
 
   /**
    * Streak Logic
+   * Returns the updated UserProfile to ensure subsequent checks have fresh data.
    */
-  const checkStreak = async (userData: UserProfile, currentMeals: Meal[], isMealLogged: boolean) => {
+  const checkStreak = async (userData: UserProfile, currentMeals: Meal[], isMealLogged: boolean): Promise<UserProfile> => {
     const now = Date.now();
     const lastMeal = userData.lastMealTimestamp || now;
     const lastUpdate = userData.lastLoginTimestamp || now;
@@ -378,7 +383,11 @@ const App: React.FC = () => {
 
         // DB
         await supabase.from('profiles').update(updates).eq('id', session.user.id);
+        
+        return updatedUser;
     }
+    
+    return userData;
   };
 
   const calculateGoals = (age: number, gender: Gender, weight: number, height: number, activity: ActivityLevel, goalType: GoalType) => {
@@ -588,6 +597,8 @@ const App: React.FC = () => {
         if (uploadedUrl) imageUrl = uploadedUrl;
     }
 
+    let updatedMealsList = [...meals];
+
     if (editingMealId) {
       // Update DB
       const { error } = await supabase.from('meals').update({
@@ -603,7 +614,7 @@ const App: React.FC = () => {
       if (error) { alert("Failed to update meal"); return; }
 
       // Update State
-      setMeals(prev => prev.map(m => m.id === editingMealId ? {
+      updatedMealsList = meals.map(m => m.id === editingMealId ? {
         ...m,
         name: mealName,
         items: finalItems,
@@ -612,7 +623,9 @@ const App: React.FC = () => {
         totalCarbs: mealTotals.carbs,
         totalFat: mealTotals.fat,
         imageUrl: imageUrl
-      } : m));
+      } : m);
+      
+      setMeals(updatedMealsList);
 
     } else {
       // Insert DB
@@ -646,12 +659,15 @@ const App: React.FC = () => {
           totalFat: Number(data.total_fat)
       };
 
-      setMeals(prev => [newMeal, ...prev]);
+      updatedMealsList = [newMeal, ...meals];
+      setMeals(updatedMealsList);
       setActiveMealTab(0); 
     }
 
     if (user) {
-        checkStreak(user, meals, true);
+        // Ensure we check streaks AND achievements with the fresh data
+        const updatedUser = await checkStreak(user, updatedMealsList, true);
+        await checkAchievements(updatedUser, updatedMealsList);
     }
 
     setShowNutritionModal(false);
@@ -661,7 +677,9 @@ const App: React.FC = () => {
   };
 
   // --- VIEW RENDERERS ---
-
+  
+  // ... (rest of the file remains unchanged)
+  
   const renderAuth = () => (
       <div className="min-h-screen flex items-center justify-center p-4 relative z-10 safe-top safe-bottom">
           <div className="w-full max-w-md">
