@@ -44,7 +44,8 @@ import {
   AlertTriangle,
   ShieldCheck,
   Trash2,
-  UserCircle
+  UserCircle,
+  Check
 } from 'lucide-react';
 import { format, isSameDay, subMonths, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth } from 'date-fns';
 
@@ -1114,14 +1115,15 @@ const App: React.FC = () => {
                                 <span className={`text-sm font-bold ${isSelected ? 'text-white' : ''}`}>{format(day, 'd')}</span>
                                 
                                 {/* Indicators */}
-                                <div className="absolute -bottom-1 flex gap-0.5">
-                                    {goalMet && (
-                                        <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-brand-green' : 'bg-brand-green'}`}></div>
-                                    )}
-                                    {hasData && !goalMet && (
-                                        <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-gray-500' : 'bg-gray-300'}`}></div>
-                                    )}
-                                </div>
+                                {goalMet && (
+                                    <div className="absolute -top-1 -right-1 bg-brand-green rounded-full p-0.5 border-2 border-white shadow-sm z-10">
+                                        <Check size={8} className="text-white" strokeWidth={4} />
+                                    </div>
+                                )}
+                                
+                                {hasData && !goalMet && (
+                                     <div className={`absolute bottom-1 w-1 h-1 rounded-full ${isSelected ? 'bg-gray-500' : 'bg-gray-300'}`}></div>
+                                )}
                             </button>
                         );
                     })}
