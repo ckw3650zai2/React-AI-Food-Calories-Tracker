@@ -525,6 +525,16 @@ const App: React.FC = () => {
     return meals.filter(m => m.date === today).sort((a, b) => b.timestamp - a.timestamp);
   }, [meals]);
 
+  // Group meals by date (Moved to top level to avoid conditional hook execution)
+  const groupedMeals = useMemo(() => {
+      const groups: Record<string, Meal[]> = {};
+      meals.forEach(meal => {
+          if (!groups[meal.date]) groups[meal.date] = [];
+          groups[meal.date].push(meal);
+      });
+      return groups;
+  }, [meals]);
+
   const totals = useMemo(() => {
     return todayMeals.reduce((acc, meal) => ({
       calories: acc.calories + meal.totalCalories,
@@ -1009,14 +1019,7 @@ const App: React.FC = () => {
 
   const renderHistory = () => {
     // Group meals by date
-    const groupedMeals = useMemo(() => {
-        const groups: Record<string, Meal[]> = {};
-        meals.forEach(meal => {
-            if (!groups[meal.date]) groups[meal.date] = [];
-            groups[meal.date].push(meal);
-        });
-        return groups;
-    }, [meals]);
+    // Note: useMemo logic for groupedMeals moved to top level to avoid React Hook errors.
 
     const dates = Object.keys(groupedMeals).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
 
