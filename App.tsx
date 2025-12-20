@@ -193,13 +193,18 @@ const App: React.FC = () => {
 
   const handleGoogleLogin = async () => {
     if (!isSupabaseConfigured) {
-      alert("Application is not configured. Please check your .env file.");
+      alert("Application is not configured. Please check your .env file or project settings.");
       return;
     }
     setAuthLoading(true);
+    
+    // Log the redirect URL for debugging purposes
+    const redirectUrl = window.location.origin;
+    console.log("Attempting Google Auth redirect to:", redirectUrl);
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin }
+      options: { redirectTo: redirectUrl }
     });
     if (error) alert(error.message);
     setAuthLoading(false);
