@@ -73,6 +73,10 @@ const App: React.FC = () => {
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   
+  // History View State
+  const [historyMonth, setHistoryMonth] = useState(new Date());
+  const [historySelectedDate, setHistorySelectedDate] = useState(new Date());
+  
   // Tabs state for Dashboard
   const [activeMealTab, setActiveMealTab] = useState(0);
   const tabsContainerRef = useRef<HTMLDivElement>(null);
@@ -1018,56 +1022,166 @@ const App: React.FC = () => {
   };
 
   const renderHistory = () => {
-    // Group meals by date
-    // Note: useMemo logic for groupedMeals moved to top level to avoid React Hook errors.
+    // 1. Calendar Generation
+    const monthStart = startOfMonth(historyMonth);
+    const monthEnd = endOfMonth(monthStart);
+    const startDate = startOfWeek(monthStart);
+    const endDate = endOfWeek(monthEnd);
+    
+    const calendarDays = eachDayOfInterval({
+        start: startDate,
+        end: endDate
+    });
 
-    const dates = Object.keys(groupedMeals).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+    const weekDays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+    // 2. Helper to check goals
+    const getDayStatus = (date: Date) => {
+        if (!user) return { hasData: false, goalMet: false };
+        const dateKey = format(date, 'yyyy-MM-dd');
+        const mealsForDay = groupedMeals[dateKey] || [];
+        if (mealsForDay.length === 0) return { hasData: false, goalMet: false };
+
+        const totalCals = mealsForDay.reduce((acc, m) => acc + m.totalCalories, 0);
+        // Goal met if within 10% or +/- 200kcal of target
+        const diff = Math.abs(totalCals - user.goals.calories);
+        // Allow a buffer (e.g., 150 calories)
+        return { hasData: true, goalMet: diff <= 150 };
+    };
+
+    // 3. Selected Day Stats
+    const selectedDateKey = format(historySelectedDate, 'yyyy-MM-dd');
+    const selectedMeals = groupedMeals[selectedDateKey] || [];
+    const dayStats = selectedMeals.reduce((acc, meal) => ({
+        calories: acc.calories + meal.totalCalories,
+        protein: acc.protein + meal.totalProtein,
+        carbs: acc.carbs + meal.totalCarbs,
+        fat: acc.fat + meal.totalFat,
+    }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+    const status = getDayStatus(historySelectedDate);
 
     return (
-        <div className="pb-32 pt-6 space-y-8 animate-fade-in">
-            <h1 className="text-2xl font-black text-gray-900 px-2 tracking-tight">History</h1>
-            
-            {dates.length === 0 ? (
-                <div className="text-center py-20">
-                    <p className="text-gray-400 font-bold">No history available yet.</p>
+        <div className="pb-32 pt-6 space-y-6 animate-fade-in">
+            {/* Header */}
+            <div className="flex items-center justify-between px-2">
+                <h1 className="text-2xl font-black text-gray-900 tracking-tight">History</h1>
+                <div className="flex items-center gap-2 bg-white rounded-full p-1 border border-gray-100 shadow-sm">
+                    <button onClick={() => setHistoryMonth(subMonths(historyMonth, 1))} className="p-2 hover:bg-gray-100 rounded-full text-gray-600">
+                        <ChevronLeft size={20} />
+                    </button>
+                    <span className="text-sm font-black text-gray-900 w-24 text-center">
+                        {format(historyMonth, 'MMMM yyyy')}
+                    </span>
+                    <button onClick={() => setHistoryMonth(addMonths(historyMonth, 1))} className="p-2 hover:bg-gray-100 rounded-full text-gray-600">
+                        <ChevronRight size={20} />
+                    </button>
                 </div>
-            ) : (
-                <div className="space-y-8">
-                    {dates.map(date => {
-                        const dayMeals = groupedMeals[date];
-                        const dayTotal = dayMeals.reduce((acc, m) => acc + m.totalCalories, 0);
-                        const isToday = date === format(new Date(), 'yyyy-MM-dd');
-                        
+            </div>
+
+            {/* Calendar */}
+            <div className="bg-white rounded-[2.5rem] p-6 shadow-xl shadow-gray-200/50 border border-white/60 backdrop-blur-md">
+                <div className="grid grid-cols-7 mb-4">
+                    {weekDays.map(d => (
+                        <div key={d} className="text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">{d}</div>
+                    ))}
+                </div>
+                <div className="grid grid-cols-7 gap-y-4">
+                    {calendarDays.map((day, i) => {
+                        const isSelected = isSameDay(day, historySelectedDate);
+                        const isCurrentMonth = isSameMonth(day, historyMonth);
+                        const isToday = isSameDay(day, new Date());
+                        const { hasData, goalMet } = getDayStatus(day);
+
                         return (
-                            <div key={date}>
-                                <div className="flex items-center justify-between px-2 mb-4">
-                                    <h3 className={`font-black uppercase tracking-widest ${isToday ? 'text-brand-green' : 'text-gray-400'}`}>
-                                        {isToday ? 'Today' : format(new Date(date), 'MMMM do')}
-                                    </h3>
-                                    <span className="text-xs font-bold bg-gray-100 px-3 py-1 rounded-full text-gray-600">
-                                        {Math.round(dayTotal)} kcal
-                                    </span>
+                            <button 
+                                key={i}
+                                onClick={() => {
+                                    setHistorySelectedDate(day);
+                                    // Also switch view month if clicking gray date from prev/next month
+                                    if (!isCurrentMonth) {
+                                        setHistoryMonth(day);
+                                    }
+                                }}
+                                className={`
+                                    relative flex flex-col items-center justify-center h-10 w-10 mx-auto rounded-2xl transition-all duration-300
+                                    ${isSelected ? 'bg-brand-dark text-white shadow-lg scale-110 z-10' : ''}
+                                    ${!isSelected && isCurrentMonth ? 'text-gray-700 hover:bg-gray-50' : ''}
+                                    ${!isSelected && !isCurrentMonth ? 'text-gray-300' : ''}
+                                    ${!isSelected && isToday ? 'border-2 border-brand-green/30' : ''}
+                                `}
+                            >
+                                <span className={`text-sm font-bold ${isSelected ? 'text-white' : ''}`}>{format(day, 'd')}</span>
+                                
+                                {/* Indicators */}
+                                <div className="absolute -bottom-1 flex gap-0.5">
+                                    {goalMet && (
+                                        <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-brand-green' : 'bg-brand-green'}`}></div>
+                                    )}
+                                    {hasData && !goalMet && (
+                                        <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-gray-500' : 'bg-gray-300'}`}></div>
+                                    )}
                                 </div>
-                                <div className="space-y-4">
-                                    {dayMeals.map(meal => (
-                                        <MealCard 
-                                            key={meal.id} 
-                                            meal={meal} 
-                                            onEdit={handleEditMeal}
-                                            onDelete={async (id) => {
-                                                if (window.confirm('Delete this meal?')) {
-                                                    const { error } = await supabase.from('meals').delete().eq('id', id);
-                                                    if (!error) setMeals(prev => prev.filter(m => m.id !== id));
-                                                }
-                                            }}
-                                        />
-                                    ))}
-                                </div>
-                            </div>
+                            </button>
                         );
                     })}
                 </div>
-            )}
+            </div>
+
+            {/* Selected Date Summary */}
+            <div className="px-2 animate-fade-in" key={selectedDateKey}>
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-black text-gray-900 tracking-tight flex items-center gap-2">
+                        {format(historySelectedDate, 'EEEE, MMM do')}
+                        {status.goalMet && <CheckCircle size={18} className="text-brand-green fill-brand-green/10" />}
+                    </h3>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-50 px-3 py-1.5 rounded-full border border-gray-100">
+                        {selectedMeals.length} Meals
+                    </span>
+                </div>
+
+                <div className="grid grid-cols-4 gap-3 mb-6">
+                    <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-100 flex flex-col items-center justify-center">
+                        <span className="text-xl font-black text-emerald-700">{Math.round(dayStats.calories)}</span>
+                        <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Cals</span>
+                    </div>
+                    <div className="p-3 bg-blue-50 rounded-2xl border border-blue-100 flex flex-col items-center justify-center">
+                        <span className="text-lg font-black text-blue-700">{Math.round(dayStats.protein)}</span>
+                        <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Prot</span>
+                    </div>
+                    <div className="p-3 bg-amber-50 rounded-2xl border border-amber-100 flex flex-col items-center justify-center">
+                        <span className="text-lg font-black text-amber-700">{Math.round(dayStats.carbs)}</span>
+                        <span className="text-[9px] font-black text-amber-400 uppercase tracking-widest">Carbs</span>
+                    </div>
+                    <div className="p-3 bg-rose-50 rounded-2xl border border-rose-100 flex flex-col items-center justify-center">
+                        <span className="text-lg font-black text-rose-700">{Math.round(dayStats.fat)}</span>
+                        <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest">Fat</span>
+                    </div>
+                </div>
+
+                <div className="space-y-4">
+                    {selectedMeals.length > 0 ? (
+                        selectedMeals.map(meal => (
+                            <MealCard 
+                                key={meal.id} 
+                                meal={meal} 
+                                onEdit={handleEditMeal}
+                                onDelete={async (id) => {
+                                    if (window.confirm('Delete this meal?')) {
+                                        const { error } = await supabase.from('meals').delete().eq('id', id);
+                                        if (!error) setMeals(prev => prev.filter(m => m.id !== id));
+                                    }
+                                }}
+                            />
+                        ))
+                    ) : (
+                         <div className="text-center py-10 bg-white/50 border border-dashed border-gray-200 rounded-[2.5rem]">
+                            <p className="text-gray-400 font-bold mb-1">No meals logged</p>
+                            <p className="text-xs text-gray-300">Select another date or add a meal</p>
+                         </div>
+                    )}
+                </div>
+            </div>
         </div>
     );
   };
