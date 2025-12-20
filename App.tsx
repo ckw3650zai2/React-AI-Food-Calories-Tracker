@@ -976,7 +976,7 @@ const App: React.FC = () => {
               max={caloriesGoal}
               color="#00A86B" // brand-green
               label="Calories"
-              subLabel="Consumed"
+              subLabel="Kcal"
            />
            
            <div className="grid grid-cols-2 gap-4">
@@ -1141,25 +1141,26 @@ const App: React.FC = () => {
                                 key={i}
                                 onClick={() => {
                                     setHistorySelectedDate(day);
-                                    // Also switch view month if clicking gray date from prev/next month
                                     if (!isCurrentMonth) {
                                         setHistoryMonth(day);
                                     }
                                 }}
                                 className={`
-                                    relative flex flex-col items-center justify-center h-14 w-10 mx-auto rounded-2xl transition-all duration-300
+                                    relative flex flex-col items-center justify-start pt-2 h-14 w-10 mx-auto rounded-2xl transition-all duration-300
                                     ${isSelected ? 'bg-brand-dark text-white shadow-lg scale-110 z-10' : ''}
                                     ${!isSelected && isCurrentMonth ? 'text-gray-700 hover:bg-gray-50' : ''}
                                     ${!isSelected && !isCurrentMonth ? 'text-gray-300' : ''}
                                     ${!isSelected && isToday ? 'border-2 border-brand-green/30' : ''}
                                 `}
                             >
-                                <span className={`text-sm font-bold z-10 mb-2 ${isSelected ? 'text-white' : ''}`}>{format(day, 'd')}</span>
+                                <span className={`text-sm font-bold z-10 ${isSelected ? 'text-white' : ''}`}>{format(day, 'd')}</span>
                                 
                                 {/* Indicators */}
-                                <div className="absolute bottom-1 left-0 right-0 flex justify-center h-4 items-center">
+                                <div className="absolute bottom-1.5 left-0 right-0 flex justify-center items-center">
                                     {goalMet ? (
-                                        <Check size={14} className="text-brand-green" strokeWidth={4} />
+                                        <div className={`w-4 h-4 rounded-full flex items-center justify-center ${isSelected ? 'bg-white text-brand-dark' : 'bg-brand-green text-white'} shadow-sm`}>
+                                            <Check size={10} strokeWidth={4} />
+                                        </div>
                                     ) : hasData ? (
                                          <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-gray-500' : 'bg-gray-300'}`}></div>
                                     ) : null}
