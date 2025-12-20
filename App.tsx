@@ -45,7 +45,8 @@ import {
   ShieldCheck,
   Trash2,
   UserCircle,
-  Check
+  Check,
+  BrainCircuit
 } from 'lucide-react';
 import { format, isSameDay, subMonths, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth } from 'date-fns';
 
@@ -560,7 +561,6 @@ const App: React.FC = () => {
     return meals.filter(m => m.date === today).sort((a, b) => b.timestamp - a.timestamp);
   }, [meals]);
 
-  // Group meals by date (Moved to top level to avoid conditional hook execution)
   const groupedMeals = useMemo(() => {
       const groups: Record<string, Meal[]> = {};
       meals.forEach(meal => {
@@ -1082,10 +1082,14 @@ const App: React.FC = () => {
         if (mealsForDay.length === 0) return { hasData: false, goalMet: false };
 
         const totalCals = mealsForDay.reduce((acc, m) => acc + m.totalCalories, 0);
-        // Goal met if within 10% or +/- 200kcal of target
+        
+        // Relaxed Goal Logic:
+        // Consider goal met if calories are within 20% of the target
+        // This provides a "green zone" rather than a precise point
+        const range = user.goals.calories * 0.20; 
         const diff = Math.abs(totalCals - user.goals.calories);
-        // Allow a buffer (e.g., 150 calories)
-        return { hasData: true, goalMet: diff <= 150 };
+        
+        return { hasData: true, goalMet: diff <= range };
     };
 
     // 3. Selected Day Stats
@@ -1153,9 +1157,9 @@ const App: React.FC = () => {
                                 <span className={`text-sm font-bold z-10 mb-2 ${isSelected ? 'text-white' : ''}`}>{format(day, 'd')}</span>
                                 
                                 {/* Indicators */}
-                                <div className="absolute bottom-1.5 left-0 right-0 flex justify-center">
+                                <div className="absolute bottom-1 left-0 right-0 flex justify-center h-4 items-center">
                                     {goalMet ? (
-                                        <Check size={16} className="text-brand-green" strokeWidth={3} />
+                                        <Check size={14} className="text-brand-green" strokeWidth={4} />
                                     ) : hasData ? (
                                          <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-gray-500' : 'bg-gray-300'}`}></div>
                                     ) : null}
@@ -1340,6 +1344,28 @@ const App: React.FC = () => {
       </div>
     );
   };
+  
+  const renderAnalyzingOverlay = () => {
+    if (!isAnalyzing) return null;
+    return (
+      <div className="fixed inset-0 z-[80] bg-black/80 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-fade-in">
+         <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full text-center shadow-2xl relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-br from-brand-green/5 via-transparent to-brand-green/5 animate-pulse"></div>
+            
+            <div className="relative z-10 flex flex-col items-center">
+              <div className="w-20 h-20 mx-auto bg-brand-green/10 rounded-full flex items-center justify-center mb-6 relative">
+                 <div className="absolute inset-0 rounded-full border-4 border-brand-green/20"></div>
+                 <div className="absolute inset-0 rounded-full border-4 border-brand-green border-t-transparent animate-spin"></div>
+                 <Sparkles className="text-brand-green animate-pulse" size={32} />
+              </div>
+              
+              <h3 className="text-xl font-black text-gray-900 mb-2">Analyzing Meal</h3>
+              <p className="text-gray-500 font-medium text-sm animate-pulse">Identifying ingredients & macros...</p>
+            </div>
+         </div>
+      </div>
+    );
+  };
 
   return (
     <div className="no-scrollbar min-h-screen">
@@ -1353,6 +1379,7 @@ const App: React.FC = () => {
       </main>
       {renderAchievementCelebration()}
       {renderPrivacyModal()}
+      {renderAnalyzingOverlay()}
       {showCamera && <CameraModal onClose={() => setShowCamera(false)} onCapture={handleCameraCapture} />}
       {showNutritionModal && (
         <NutritionModal 
